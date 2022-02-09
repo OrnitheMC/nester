@@ -1,0 +1,48 @@
+plugins {
+    id 'java'
+}
+
+group 'net.ornithemc'
+version '0.0.0'
+
+repositories {
+    maven {
+        name = 'Fabric'
+        url = 'https://maven.fabricmc.net/'
+    }
+    mavenCentral()
+}
+
+ext {
+    junitVersion = '5.7.1'
+}
+
+sourceCompatibility = '8'
+targetCompatibility = '8'
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+dependencies {
+    implementation 'org.ow2.asm:asm:9.2'
+    implementation 'org.ow2.asm:asm-commons:9.2'
+    implementation 'org.ow2.asm:asm-tree:9.2'
+    implementation 'org.ow2.asm:asm-util:9.2'
+    implementation 'net.fabricmc:tiny-remapper:0.8.1'
+
+    testImplementation("org.junit.jupiter:junit-jupiter-api:${junitVersion}")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:${junitVersion}")
+}
+
+jar {
+    manifest {
+        attributes(
+            'Main-Class': 'net.ornithemc.nester.Main'
+        )
+    }
+}
+
+test {
+    useJUnitPlatform()
+}
