@@ -2,6 +2,7 @@
 /bin
 /.gradle
 /.idea
+/run
 
 # eclipse
 .eclipse

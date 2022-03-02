@@ -1,9 +1,13 @@
 plugins {
     id 'java'
+    id 'java-library'
+    id 'maven-publish'
 }
 
 group 'net.ornithemc'
 version '0.0.0'
+
+def ENV = System.getenv()
 
 repositories {
     maven {
@@ -45,4 +49,31 @@ jar {
 
 test {
     useJUnitPlatform()
+}
+
+java {
+    withSourcesJar()
+}
+
+publishing {
+    publications{
+        maven(MavenPublication) {
+            groupId = project.group
+            artifactId = project.archivesBaseName
+            version = project.version
+
+            from components.java
+        }
+    }
+    repositories {
+        if (ENV.MAVEN_URL) {
+            maven {
+                url = ENV.MAVEN_URL
+                credentials {
+                    username = ENV.MAVEN_USERNAME
+                    password = ENV.MAVEN_PASSWORD
+                }
+            }
+        }
+    }
 }
