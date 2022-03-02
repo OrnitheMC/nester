@@ -49,8 +49,7 @@ public class Nester
         reader.read(mappings);
 
         if (nestedClassReferences.isEmpty()) {
-            System.out.println("The provided mappings are empty or invalid! Exiting...");
-            System.exit(0);
+            System.out.println("The provided mappings are empty or invalid!");
         }
     }
 
@@ -112,16 +111,14 @@ public class Nester
 
                             @Override
                             public void visitEnd() {
-                                if (references == null) {
-                                    return;
-                                }
+                                if (references != null) {
+                                	for (NestedClassReference ref : references) {
+                                		if (ref.className.equals(name) && ref.innerName == null) {
+                                			visitOuterClass(ref.enclosingClassName, ref.enclosingMethodName, ref.enclosingMethodDesc);
+                                		}
 
-                                for (NestedClassReference ref : references) {
-                                    if (ref.className.equals(name) && ref.innerName == null) {
-                                        visitOuterClass(ref.enclosingClassName, ref.enclosingMethodName, ref.enclosingMethodDesc);
-                                    }
-
-                                    addReference(ref);
+                                		addReference(ref);
+                                	}
                                 }
 
                                 super.visitEnd();

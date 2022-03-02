@@ -35,11 +35,15 @@ public class Main
             System.exit(1);
         }
 
-        Nester nester = new Nester(src, dst);
-
-        nester.readMappings(mappings);
-        nester.fixJar();
+        run(src, dst, mappings);
 
         System.exit(0);
+    }
+
+    public static void run(Path src, Path dst, Path mappings) {
+    	Nester nester = new Nester(src, dst);
+    	
+    	nester.readMappings(mappings);
+    	nester.fixJar();
     }
 }
