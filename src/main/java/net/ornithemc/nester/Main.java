@@ -41,9 +41,9 @@ public class Main
     }
 
     public static void run(Path src, Path dst, Path mappings) {
-    	Nester nester = new Nester(src, dst);
+    	Nester nester = new Nester();
     	
     	nester.readMappings(mappings);
-    	nester.fixJar();
+    	nester.fixJar(src, dst);
     }
 }

@@ -25,16 +25,10 @@ import net.fabricmc.tinyremapper.TinyRemapper;
 
 public class Nester
 {
-    private final Path src;
-    private final Path dst;
-
     private final Map<String, String> classMappings;
     private final Map<String, Set<NestedClassReference>> nestedClassReferences;
 
-    public Nester(Path src, Path dst) {
-        this.src = src;
-        this.dst = dst;
-
+    public Nester() {
         this.classMappings = new HashMap<>();
         this.nestedClassReferences = new HashMap<>();
     }
@@ -53,14 +47,14 @@ public class Nester
         }
     }
 
-    public void fixJar() {
+    public void fixJar(Path src, Path dst) {
         try {
             Path tmp = Files.createTempFile("tmp", ".jar");
 
             Files.delete(tmp);
 
-            remapJar(tmp);
-            writeFixedJar(tmp);
+            remapJar(src, tmp);
+            writeFixedJar(src, tmp, dst);
 
             Files.delete(tmp);
 
@@ -70,7 +64,7 @@ public class Nester
         }
     }
 
-    private void remapJar(Path tmp) {
+    private void remapJar(Path src, Path tmp) {
         TinyRemapper remapper = TinyRemapper.newRemapper().withMappings(ma -> {
             for (Entry<String, String> mapping : classMappings.entrySet()) {
                 ma.acceptClass(mapping.getKey(), mapping.getValue());
@@ -89,7 +83,7 @@ public class Nester
         System.out.println("Remapped nested class names...");
     }
 
-    private void writeFixedJar(Path tmp) {
+    private void writeFixedJar(Path src, Path tmp, Path dst) {
         try (JarOutputStream jos = new JarOutputStream(new FileOutputStream(dst.toFile()))) {
             try (JarInputStream jis = new JarInputStream(new FileInputStream(tmp.toFile()))) {
                 for (JarEntry entry; (entry = jis.getNextJarEntry()) != null; ) {
