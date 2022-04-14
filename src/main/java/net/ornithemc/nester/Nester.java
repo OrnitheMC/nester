@@ -5,15 +5,9 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
 import java.util.jar.JarOutputStream;
-import java.util.zip.ZipEntry;
 
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
@@ -22,151 +16,267 @@ import org.objectweb.asm.Opcodes;
 
 import net.fabricmc.tinyremapper.OutputConsumerPath;
 import net.fabricmc.tinyremapper.TinyRemapper;
+import net.ornithemc.nester.jar.SourceJar;
+import net.ornithemc.nester.jar.node.ClassNode;
+import net.ornithemc.nester.jar.node.MethodNode;
+import net.ornithemc.nester.jar.node.Node;
+import net.ornithemc.nester.jar.node.proto.ProtoClassNode;
+import net.ornithemc.nester.jar.node.proto.ProtoMethodNode;
 
-public class Nester
-{
-    private final Map<String, String> classMappings;
-    private final Map<String, Set<NestedClassReference>> nestedClassReferences;
+public class Nester {
 
-    public Nester() {
-        this.classMappings = new HashMap<>();
-        this.nestedClassReferences = new HashMap<>();
-    }
+	public static void run(Path src, Path dst) {
+		Nester nester = new Nester(src, dst);
 
-    public void readMappings(Path mappings) {
-        classMappings.clear();
-        nestedClassReferences.clear();
+		nester.findNestedClasses();
+		nester.fixNestedClasses();
+	}
 
-        MappingReader reader = new MappingReader((src, dst) -> classMappings.put(src, dst), (cls, ref) -> {
-            nestedClassReferences.computeIfAbsent(cls, key -> new HashSet<>()).add(ref);
-        });
-        reader.read(mappings);
+	private final Path src;
+	private final Path dst;
+	private final SourceJar jar;
 
-        if (nestedClassReferences.isEmpty()) {
-            System.out.println("The provided mappings are empty or invalid!");
-        }
-    }
+	private Nester(Path src, Path dst) {
+		this.src = src;
+		this.dst = dst;
+		this.jar = new SourceJar(this.src);
+	}
 
-    public void fixJar(Path src, Path dst) {
-        try {
-            Path tmp = Files.createTempFile("tmp", ".jar");
+	private void findNestedClasses() {
+		int found = 0;
 
-            Files.delete(tmp);
+		for (ClassNode clazz : jar.getClasses()) {
+			if (nestClass(clazz)) {
+				found++;
+			}
+		}
 
-            remapJar(src, tmp);
-            writeFixedJar(src, tmp, dst);
+		System.out.println("Found " + found + " nested classes!");
+	}
 
-            Files.delete(tmp);
+	private boolean nestClass(ClassNode clazz) {
+		if (clazz.isNested() || !clazz.isNestable()) {
+			return false;
+		}
 
-            System.out.println("Done!");
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
+		ClassNode superClass = clazz.getSuperClass();
 
-    private void remapJar(Path src, Path tmp) {
-        TinyRemapper remapper = TinyRemapper.newRemapper().withMappings(ma -> {
-            for (Entry<String, String> mapping : classMappings.entrySet()) {
-                ma.acceptClass(mapping.getKey(), mapping.getValue());
-            }
-        }).build();
+		if (clazz.isEnum() && !superClass.getName().equals("java/lang/Enum")) {
+			return superClass.addAnonymousClass(clazz);
+		}
 
-        try (OutputConsumerPath oc = new OutputConsumerPath.Builder(tmp).build()) {
-            remapper.readInputs(src);
-            remapper.apply(oc);
-        } catch (IOException e) {
-            e.printStackTrace();
-        } finally {
-            remapper.finish();
-        }
+		return false;
+	}
 
-        System.out.println("Remapped nested class names...");
-    }
+	private void fixNestedClasses() {
+		try {
+			Path tmp1 = Files.createTempFile("tmp1", ".jar");
+			Path tmp2 = Files.createTempFile("tmp2", ".jar");
 
-    private void writeFixedJar(Path src, Path tmp, Path dst) {
-        try (JarOutputStream jos = new JarOutputStream(new FileOutputStream(dst.toFile()))) {
-            try (JarInputStream jis = new JarInputStream(new FileInputStream(tmp.toFile()))) {
-                for (JarEntry entry; (entry = jis.getNextJarEntry()) != null; ) {
-                    if (entry.getName().endsWith(".class")) {
-                        ClassReader reader = new ClassReader(jis);
-                        ClassWriter writer = new ClassWriter(reader, 0);
-                        ClassVisitor visitor = new ClassVisitor(Opcodes.ASM9, writer) {
+			// tiny remapper does not like it when the file already exists...
+			Files.delete(tmp2);
 
-                            private String name;
-                            private Set<NestedClassReference> references;
+			addAttributes(src, tmp1);
+			remapNestedClasses(tmp1, tmp2);
+			writeFixedJar(src, tmp2, dst);
 
-                            @Override
-                            public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
-                                this.name = name;
-                                this.references = nestedClassReferences.get(this.name);
+			Files.delete(tmp1);
+			Files.delete(tmp2);
 
-                                super.visit(version, access, name, signature, superName, interfaces);
-                            }
+			System.out.println("Done!");
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
 
-                            @Override
-                            public void visitEnd() {
-                                if (references != null) {
-                                	for (NestedClassReference ref : references) {
-                                		if (ref.className.equals(name) && ref.innerName == null) {
-                                			visitOuterClass(ref.enclosingClassName, ref.enclosingMethodName, ref.enclosingMethodDesc);
-                                		}
+	private void addAttributes(Path src, Path dst) {
+		try (JarOutputStream jos = new JarOutputStream(new FileOutputStream(dst.toFile()))) {
+			try (JarInputStream jis = new JarInputStream(new FileInputStream(src.toFile()))) {
+				for (JarEntry entry; (entry = jis.getNextJarEntry()) != null;) {
+					if (entry.getName().endsWith(".class")) {
+						ClassReader reader = new ClassReader(jis);
+						ClassWriter writer = new ClassWriter(reader, 0);
+						ClassVisitor visitor = new ClassVisitor(Opcodes.ASM9, writer) {
 
-                                		addReference(ref);
-                                	}
-                                }
+							private ProtoClassNode protoClass;
+							private ClassNode clazz;
 
-                                super.visitEnd();
-                            }
+							@Override
+							public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+								protoClass = jar.getProtoClass(name);
 
-                            private void addReference(NestedClassReference ref) {
-                                String name = ref.className;
-                                String outerName = ref.enclosingClassName;
-                                String innerName = ref.innerName;
-                                int access = ref.accessFlags;
+								if (protoClass != null) {
+									clazz = protoClass.node();
+								}
 
-                                if (innerName == null) {
-                                    outerName = null;
-                                }
+								super.visit(version, access, name, signature, superName, interfaces);
+							}
 
-                                visitInnerClass(name, outerName, innerName, access);
-                            }
-                        };
+							@Override
+							public void visitEnd() {
+								if (clazz != null) {
+									addReference(clazz);
 
-                        reader.accept(visitor, 0);
+									for (Node node : clazz.getChildren()) {
+										if (node.isClass()) {
+											addReference(node.asClass());
+										}
+									}
+								}
 
-                        jos.putNextEntry(new JarEntry(entry.getName()));
-                        jos.write(writer.toByteArray());
-                        jos.flush();
-                        jos.closeEntry();
-                    }
-                }
-            }
+								super.visitEnd();
+							}
 
-            System.out.println("Fixed inner class attributes...");
+							private void addReference(ClassNode innerClass) {
+								Node parent = innerClass.getParent();
 
-            try (JarInputStream jis = new JarInputStream(new FileInputStream(src.toFile()))) {
-                for (ZipEntry entry; (entry = jis.getNextEntry()) != null; ) {
-                    if (!entry.getName().endsWith(".class")) {
-                        jos.putNextEntry(new ZipEntry(entry.getName()));
+								ClassNode enclClass = null;
+								MethodNode enclMethod = null;
 
-                        byte[] buffer = new byte[4096];
-                        int read = 0;
+								if (parent == null) {
+									return;
+								} else if (parent.isClass()) {
+									enclClass = parent.asClass();
+								} else if (parent.isMethod()) {
+									enclMethod = parent.asMethod();
+									enclClass = enclMethod.getParent();
+								} else {
+									return;
+								}
 
-                        while ((read = jis.read(buffer)) > 0) {
-                            jos.write(buffer, 0, read);
-                        }
+								if (innerClass == clazz) {
+									addOuterReference(enclClass, enclMethod);
+								}
 
-                        jos.flush();
-                        jos.closeEntry();
-                    }
-                }
-            }
+								addInnerReference(enclClass, innerClass);
+							}
 
-            System.out.println("Moved over non-class files...");
+							private void addOuterReference(ClassNode enclClass, MethodNode enclMethod) {
+								// Remapping happens later so the proto names must be used
+								ProtoClassNode protoEnclClass = enclClass.proto();
 
-            jos.finish();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
+								String enclosingClassName = protoEnclClass.getName();
+								String enclosingMethodName = null;
+								String enclosingMethodDescriptor = null;
+
+								if (enclMethod != null) {
+									// Remapping happens later so the proto names must be used
+									ProtoMethodNode protoEnclMethod = enclMethod.proto();
+
+									enclosingMethodName = protoEnclMethod.getName();
+									enclosingMethodDescriptor = protoEnclMethod.getDescriptor();
+								}
+
+								visitOuterClass(enclosingClassName, enclosingMethodName, enclosingMethodDescriptor);
+							}
+
+							private void addInnerReference(ClassNode enclClass, ClassNode innerClass) {
+								// Remapping happens later so the proto names must be used
+								ProtoClassNode protoEnclClass = enclClass.proto();
+								ProtoClassNode protoInnerClass = innerClass.proto();
+
+								String name = protoInnerClass.getName();
+								String outerName = protoEnclClass.getName();
+								String innerName = innerClass.getSimpleName();
+								int access = protoInnerClass.getAccess();
+
+								if (innerName == null) {
+									outerName = null;
+								}
+
+								visitInnerClass(name, outerName, innerName, access);
+							}
+						};
+
+						reader.accept(visitor, 0);
+
+						jos.putNextEntry(new JarEntry(entry.getName()));
+						jos.write(writer.toByteArray());
+						jos.flush();
+						jos.closeEntry();
+					}
+				}
+			}
+
+			System.out.println("Fixed inner class attributes...");
+
+			jos.finish();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	private void remapNestedClasses(Path src, Path dst) {
+		TinyRemapper remapper = TinyRemapper.newRemapper().keepInputData(true).withMappings(ma -> {
+			for (ClassNode clazz : jar.getClasses()) {
+				ProtoClassNode protoClass = clazz.proto();
+
+				String protoName = protoClass.getName();
+				String name = clazz.getName();
+
+				if (!name.equals(protoName)) {
+					ma.acceptClass(protoName, name);
+				}
+			}
+		}).build();
+
+		try (OutputConsumerPath oc = new OutputConsumerPath.Builder(dst).build()) {
+			remapper.readInputs(src);
+			remapper.apply(oc);
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			remapper.finish();
+		}
+
+		System.out.println("Remapped nested class names...");
+	}
+
+	private void writeFixedJar(Path src, Path tmp, Path dst) {
+		try (JarOutputStream jos = new JarOutputStream(new FileOutputStream(dst.toFile()))) {
+			try (JarInputStream jis = new JarInputStream(new FileInputStream(src.toFile()))) {
+				for (JarEntry entry; (entry = jis.getNextJarEntry()) != null;) {
+					if (!entry.getName().endsWith(".class")) {
+						jos.putNextEntry(new JarEntry(entry.getName()));
+
+						byte[] buffer = new byte[4096];
+						int read = 0;
+
+						while ((read = jis.read(buffer)) > 0) {
+							jos.write(buffer, 0, read);
+						}
+
+						jos.flush();
+						jos.closeEntry();
+					}
+				}
+			}
+
+			System.out.println("Moved over non-class files...");
+
+			try (JarInputStream jis = new JarInputStream(new FileInputStream(tmp.toFile()))) {
+				for (JarEntry entry; (entry = jis.getNextJarEntry()) != null;) {
+					if (entry.getName().endsWith(".class")) {
+						jos.putNextEntry(new JarEntry(entry.getName()));
+
+						byte[] buffer = new byte[4096];
+						int read = 0;
+
+						while ((read = jis.read(buffer)) > 0) {
+							jos.write(buffer, 0, read);
+						}
+
+						jos.flush();
+						jos.closeEntry();
+					}
+				}
+			}
+
+			System.out.println("Moved over class files...");
+
+			jos.finish();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
 }
