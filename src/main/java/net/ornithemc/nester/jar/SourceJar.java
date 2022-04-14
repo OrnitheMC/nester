@@ -90,19 +90,9 @@ public class SourceJar {
 						public void visitOuterClass(String owner, String name, String descriptor) {
 							if (clazz != null) {
 								clazz.markNested();
-								System.out.println(clazz.getName() + " outer: " + owner + (name == null ? "" : ("." + name + descriptor)));
 							}
 
 							super.visitOuterClass(owner, name, descriptor);
-						}
-
-						@Override
-						public void visitInnerClass(String name, String outerName, String innerName, int access) {
-							if (clazz != null) {
-								System.out.println(clazz.getName() + " inner: " + name + " (" + outerName + " - " + innerName + ")");
-							}
-
-							super.visitInnerClass(name, outerName, innerName, access);
 						}
 					};
 
