@@ -5,6 +5,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
 import java.util.jar.JarOutputStream;
@@ -62,7 +64,46 @@ public class Nester {
 		ClassNode superClass = clazz.getSuperClass();
 
 		if (clazz.isEnum() && !superClass.getName().equals("java/lang/Enum")) {
-			return superClass.addAnonymousClass(clazz);
+			return superClass.addAnonymousClass(null, clazz);
+		}
+		if (clazz.hasSyntheticMembers()) {
+			if (clazz.canBeAnonymous()) {
+				Collection<MethodNode> constructors = clazz.getConstructors();
+
+				// anonymous classes have only 1 constructor
+				if (constructors.size() == 1) {
+					MethodNode constr = constructors.iterator().next();
+					Collection<Node> references = jar.getReferences(constr);
+
+					// anonymous classes are only created once
+					if (references.size() == 1) {
+						Node refNode = references.iterator().next();
+
+						if (refNode.isMethod()) {
+							MethodNode enclMethod = refNode.asMethod();
+							ClassNode enclClass = enclMethod.getParent();
+							
+							if (enclClass.addAnonymousClass(enclMethod, clazz)) {
+								return true;
+							}
+						}
+					}
+				}
+			}
+			if (clazz.canBeInner()) {
+				Collection<MethodNode> methods = clazz.getSyntheticMethods();
+				Collection<Node> references = new LinkedHashSet<>();
+
+				for (MethodNode method : methods) {
+					references.addAll(jar.getReferences(method));
+				}
+
+				ClassNode enclClass = Node.getClosestCommonParentClass(references);
+
+				if (enclClass != null) {
+					return enclClass.addInnerClass(clazz);
+				}
+			}
 		}
 
 		return false;

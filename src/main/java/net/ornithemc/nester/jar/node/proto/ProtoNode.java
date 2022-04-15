@@ -13,8 +13,10 @@ public abstract class ProtoNode {
 	protected final String name;
 	protected final String signature;
 
-	protected ProtoNode parent;
-	protected Node node;
+	private String enclosingClassName;
+	private int innerAccess;
+
+	private Node node;
 
 	protected ProtoNode(SourceJar jar, int access, String name, String signature) {
 		this.jar = jar;
@@ -28,7 +30,7 @@ public abstract class ProtoNode {
 	public boolean equals(Object obj) {
 		if (obj != null && obj instanceof ProtoNode) {
 			ProtoNode node = (ProtoNode) obj;
-			return Objects.equals(parent, node.parent) && Objects.equals(name, node.name) && Objects.equals(signature, node.signature);
+			return Objects.equals(enclosingClassName, node.enclosingClassName) && Objects.equals(name, node.name) && Objects.equals(signature, node.signature);
 		}
 
 		return false;
@@ -58,12 +60,13 @@ public abstract class ProtoNode {
 		throw new UnsupportedOperationException();
 	}
 
-	public ProtoNode getParent() {
-		return parent;
+	public void setEnclosingClass(String name) {
+		setEnclosingClass(name, 0);
 	}
 
-	public void setParent(ProtoNode node) {
-		parent = node;
+	public void setEnclosingClass(String name, int access) {
+		enclosingClassName = name;
+		innerAccess = access;
 	}
 
 	public int getAccess() {
@@ -82,9 +85,15 @@ public abstract class ProtoNode {
 		if (node == null) {
 			node = construct();
 
-			if (parent != null) {
-				Node parentNode = parent.node();
-				node.setParent(parentNode);
+			if (innerAccess != 0) {
+				node.enableAccess(innerAccess);
+			}
+			if (enclosingClassName != null) {
+				ProtoClassNode clazz = jar.getProtoClass(enclosingClassName);
+
+				if (clazz != null) {
+					node.setParent(clazz.node());
+				}
 			}
 		}
 

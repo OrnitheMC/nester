@@ -1,5 +1,7 @@
 package net.ornithemc.nester.jar.node;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -16,9 +18,17 @@ public class ClassNode extends Node {
 
 	private final Map<String, FieldNode> fields;
 	private final Map<String, MethodNode> methods;
+	private final Map<String, MethodNode> syntheticMethods;
+	private final Map<String, MethodNode> constructors;
 
 	private final Map<String, ClassNode> innerClasses;
 	private final Set<ClassNode> anonymousClasses;
+
+	private boolean hasSyntheticFields;
+	private boolean hasSyntheticMethods;
+	private boolean hasStaticMembers;
+
+	private boolean canBeAnonymous;
 
 	private String simpleName; // used by nested classes
 
@@ -30,9 +40,13 @@ public class ClassNode extends Node {
 
 		this.fields = new HashMap<>();
 		this.methods = new HashMap<>();
+		this.syntheticMethods = new HashMap<>();
+		this.constructors = new HashMap<>();
 
 		this.innerClasses = new HashMap<>();
 		this.anonymousClasses = new HashSet<>();
+
+		this.canBeAnonymous = true;
 	}
 
 	@Override
@@ -51,6 +65,11 @@ public class ClassNode extends Node {
 	}
 
 	@Override
+	public boolean isTopLevel() {
+		return super.isTopLevel() && isNestable();
+	}
+
+	@Override
 	public boolean mustHaveParent() {
 		return false;
 	}
@@ -60,15 +79,32 @@ public class ClassNode extends Node {
 		if (super.addChildNode(node)) {
 			if (node.isField()) {
 				FieldNode field = node.asField();
-				ProtoFieldNode proto = field.proto();
+				ProtoFieldNode protoField = field.proto();
 
-				fields.put(proto.getName(), field);
+				fields.put(protoField.getName(), field);
+
+				if (field.isSynthetic()) {
+					hasSyntheticFields = true;
+				}
 			}
 			if (node.isMethod()) {
 				MethodNode method = node.asMethod();
-				ProtoMethodNode proto = method.proto();
+				ProtoMethodNode protoMethod = method.proto();
+				String fullName = protoMethod.getName() + protoMethod.getDescriptor();
 
-				methods.put(proto.getName() + proto.getDescriptor(), method);
+				methods.put(fullName, method);
+
+				if (method.isInstanceConstructor()) {
+					constructors.put(fullName, method);
+				}
+				if (method.isSynthetic() && !method.isBridge()) {
+					syntheticMethods.put(fullName, method);
+					hasSyntheticMethods = true;
+				}
+			}
+
+			if (node.isStatic() && (!node.isField() || !node.isFinal())) {
+				hasStaticMembers = true;
 			}
 
 			return true;
@@ -79,15 +115,20 @@ public class ClassNode extends Node {
 
 	@Override
 	public boolean isValidChild(Node node) {
-		return !node.isClass() || node.asClass().isNestable();
+		return super.isValidChild(node) && (!node.isClass() || node.asClass().isNestable());
+	}
+
+	@Override
+	public boolean canRename() {
+		return superClass != null;
 	}
 
 	public boolean isNestable() {
-		return superClass != null && !proto().isNested();
+		return canRename() && !isNested();
 	}
 
 	public boolean isNested() {
-		return getParent() != null;
+		return hasParent();
 	}
 
 	public ClassNode getSuperClass() {
@@ -98,11 +139,27 @@ public class ClassNode extends Node {
 		return interfaces;
 	}
 
+	public Collection<FieldNode> getFields() {
+		return Collections.unmodifiableCollection(fields.values());
+	}
+
 	/**
 	 * Retrieve a field node from the name of its proto field
 	 */
 	public FieldNode getField(String name) {
 		return fields.get(name);
+	}
+
+	public Collection<MethodNode> getMethods() {
+		return Collections.unmodifiableCollection(methods.values());
+	}
+
+	public Collection<MethodNode> getSyntheticMethods() {
+		return Collections.unmodifiableCollection(syntheticMethods.values());
+	}
+
+	public Collection<MethodNode> getConstructors() {
+		return Collections.unmodifiableCollection(constructors.values());
 	}
 
 	/**
@@ -112,16 +169,45 @@ public class ClassNode extends Node {
 		return methods.get(name + desc);
 	}
 
+	public boolean hasSyntheticFields() {
+		return hasSyntheticFields;
+	}
+
+	public boolean hasSyntheticMethods() {
+		return hasSyntheticMethods;
+	}
+
+	public boolean hasSyntheticMembers() {
+		return hasSyntheticFields || hasSyntheticMethods;
+	}
+
+	public boolean hasStaticMembers() {
+		return hasStaticMembers;
+	}
+
+	public boolean canBeAnonymous() {
+		return canBeAnonymous && !hasStaticMembers;
+	}
+
+	public void markNotAnonymous() {
+		canBeAnonymous = false;
+	}
+
+	public boolean canBeInner() {
+		return !isStatic() || !hasStaticMembers;
+	}
+
 	public boolean addInnerClass(ClassNode clazz) {
 		if (!clazz.setParent(this)) {
 			return false;
 		}
 
+String oldName = clazz.getName();
 		String simpleName = getSimpleName(clazz);
 		clazz.setSimpleName(simpleName);
 		String name = getName() + "$" + simpleName;
 		clazz.setName(name);
-
+System.out.println(getName() + " add inner " + name + " (was " + oldName + ")");
 		innerClasses.put(simpleName, clazz);
 
 		return true;
@@ -131,44 +217,21 @@ public class ClassNode extends Node {
 		return clazz.getName(); // TODO: generate unique (within this class) simple names
 	}
 
-	public boolean addAnonymousClass(ClassNode clazz) {
-		if (!clazz.setParent(this)) {
+	public boolean addAnonymousClass(MethodNode enclMethod, ClassNode clazz) {
+		Node parent = (enclMethod == null) ? this : enclMethod;
+
+		if (!clazz.setParent(parent)) {
 			return false;
 		}
 
-		clazz.setParent(this);
-
+String oldName = clazz.getName();
 		clazz.setSimpleName(null);
 		String name = getName() + "$" + anonymousClasses.size();
 		clazz.setName(name);
-
+System.out.println(getName() + " add anon " + name + " (was " + oldName + ")");
 		anonymousClasses.add(clazz);
 
 		return true;
-	}
-
-	public void removeNestedClass(ClassNode clazz) {
-		if (!clazz.setParent(null)) {
-			return;
-		}
-
-		String simpleName = clazz.getSimpleName();
-
-		if (simpleName == null) {
-			anonymousClasses.remove(clazz);
-			resetAnonymousClassNames();
-		} else {
-			innerClasses.remove(simpleName, clazz);
-		}
-	}
-
-	private void resetAnonymousClassNames() {
-		int i = 0;
-
-		for (ClassNode clazz : anonymousClasses) {
-			String name = getName() + "$" + i++;
-			clazz.setName(name);
-		}
 	}
 
 	public String getSimpleName() {

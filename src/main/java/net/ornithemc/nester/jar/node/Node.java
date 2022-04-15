@@ -1,6 +1,8 @@
 package net.ornithemc.nester.jar.node;
 
+import java.util.Collection;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -25,6 +27,10 @@ public abstract class Node {
 
 		this.access = this.proto.getAccess();
 		this.name = this.proto.getName();
+	}
+
+	public String dab() {
+		return parent == null || isClass() ? name : parent.dab() + "." + name;
 	}
 
 	@Override
@@ -60,26 +66,38 @@ public abstract class Node {
 		throw new UnsupportedOperationException();
 	}
 
+	public boolean isTopLevel() {
+		return parent == null;
+	}
+
+	public boolean hasParent() {
+		return parent != null;
+	}
+
 	public Node getParent() {
 		return parent;
 	}
 
 	public boolean setParent(Node node) {
-		if (isValidParent(node)) {
-			if (parent != null) {
-				parent.removeChildNode(this);
-			}
+		return isValidParent(node) && setParentNode(node);
+	}
 
-			parent = node;
-
-			if (parent != null) {
-				parent.addChildNode(this);
-			}
-
-			return true;
+	protected boolean setParentNode(Node node) {
+		if (parent == node) {
+			return false;
 		}
 
-		return false;
+		if (parent != null) {
+			parent.removeChildNode(this);
+		}
+
+		parent = node;
+
+		if (parent != null) {
+			parent.addChildNode(this);
+		}
+
+		return true;
 	}
 
 	public boolean isValidParent(Node node) {
@@ -88,6 +106,51 @@ public abstract class Node {
 
 	public boolean mustHaveParent() {
 		return true;
+	}
+
+	public Node getClosestCommonAncestor(Node node) {
+		for (Node p = this; p != null; p = p.parent) {
+			if (p == node || p.encloses(node)) {
+				return p;
+			}
+		}
+
+		return null;
+	}
+
+	public ClassNode getClosestCommonParentClass(Node node) {
+		for (Node p = getClosestCommonAncestor(node); p != null; p = p.parent) {
+			if (p.isClass()) {
+				return p.asClass();
+			}
+		}
+
+		return null;
+	}
+
+	public static Node getClosestCommonAncestor(Collection<Node> nodes) {
+		if (nodes.isEmpty()) {
+			return null;
+		}
+
+		Iterator<Node> it = nodes.iterator();
+		Node ancestor = it.next();
+
+		while (it.hasNext() && ancestor != null) {
+			ancestor = it.next().getClosestCommonAncestor(ancestor);
+		}
+
+		return ancestor;
+	}
+
+	public static ClassNode getClosestCommonParentClass(Collection<Node> nodes) {
+		for (Node p = getClosestCommonAncestor(nodes); p != null; p = p.parent) {
+			if (p.isClass()) {
+				return p.asClass();
+			}
+		}
+
+		return null;
 	}
 
 	public Set<Node> getChildren() {
@@ -102,7 +165,19 @@ public abstract class Node {
 		return children.remove(node);
 	}
 
-	public abstract boolean isValidChild(Node node);
+	public boolean isValidChild(Node node) {
+		return getClosestCommonAncestor(node) == null;
+	}
+
+	public boolean encloses(Node node) {
+		for (Node p = node.parent; p != null; p = p.parent) {
+			if (this == p) {
+				return true;
+			}
+		}
+
+		return false;
+	}
 
 	public int getAccess() {
 		return access;
@@ -223,13 +298,13 @@ public abstract class Node {
 		disableAccess(Opcodes.ACC_PUBLIC, Opcodes.ACC_PRIVATE);
 	}
 
-	private void enableAccess(int... opcodes) {
+	public void enableAccess(int... opcodes) {
 		for (int opcode : opcodes) {
 			access |= opcode;
 		}
 	}
 
-	private void disableAccess(int... opcodes) {
+	public void disableAccess(int... opcodes) {
 		for (int opcode : opcodes) {
 			access &= ~opcode;
 		}
@@ -240,12 +315,16 @@ public abstract class Node {
 	}
 
 	public void setName(String name) {
-		if (isValidName(name)) {
+		if (canRename() && isValidName(name)) {
 			this.name = name;
 		}
 	}
 
-	protected boolean isValidName(String name) {
+	public boolean canRename() {
+		return false;
+	}
+
+	public boolean isValidName(String name) {
 		return true; // TODO: test for keywords and invalid characters
 	}
 }

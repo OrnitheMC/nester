@@ -9,8 +9,6 @@ public class ProtoClassNode extends ProtoNode {
 	private final String superName;
 	private final String[] interfaces;
 
-	private boolean nested;
-
 	public ProtoClassNode(SourceJar jar, int version, int access, String name, String signature, String superName, String[] interfaces) {
 		super(jar, access, name, signature);
 
@@ -63,14 +61,6 @@ public class ProtoClassNode extends ProtoNode {
 
 	public String[] getInterfaces() {
 		return interfaces;
-	}
-
-	public void markNested() {
-		nested = true;
-	}
-
-	public boolean isNested() {
-		return nested;
 	}
 
 	private ClassNode getClass(String name) {

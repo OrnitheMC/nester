@@ -4,8 +4,16 @@ import net.ornithemc.nester.jar.node.proto.ProtoMethodNode;
 
 public class MethodNode extends Node {
 
+	private final boolean isInstanceConstructor;
+	private final boolean isClassConstructor;
+
 	public MethodNode(ProtoMethodNode proto) {
 		super(proto);
+
+		String name = getName();
+
+		this.isInstanceConstructor = name.equals("<init>");
+		this.isClassConstructor = name.equals("<clinit>");
 	}
 
 	@Override
@@ -30,6 +38,14 @@ public class MethodNode extends Node {
 
 	@Override
 	public boolean isValidChild(Node node) {
-		return node.isClass() && node.asClass().isNestable();
+		return super.isValidChild(node) && node.isClass() && node.asClass().isNestable();
+	}
+
+	public boolean isInstanceConstructor() {
+		return isInstanceConstructor;
+	}
+
+	public boolean isClassConstructor() {
+		return isClassConstructor;
 	}
 }
