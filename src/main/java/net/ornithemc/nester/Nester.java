@@ -24,23 +24,58 @@ import net.ornithemc.nester.jar.node.MethodNode;
 import net.ornithemc.nester.jar.node.Node;
 import net.ornithemc.nester.jar.node.proto.ProtoClassNode;
 import net.ornithemc.nester.jar.node.proto.ProtoMethodNode;
+import net.ornithemc.nester.serdes.MappingIo;
 
 public class Nester {
 
-	public static void run(Path src, Path dst) {
-		Nester nester = new Nester(src, dst);
+	/**
+	 * Fix the jar at the given source path with the given mappings and
+	 * write it to the given destination path.
+	 */
+	public static void fixJar(Path src, Path dst, Path mappings) {
+		Nester nester = new Nester(src, dst, mappings);
+
+		nester.readNestedClasses();
+		nester.fixNestedClasses();
+	}
+
+	/**
+	 * Fix the jar at the given source path using Nester's automatic nested
+	 * class detection and write it to the given destination path.
+	 */
+	public static void fixJar(Path src, Path dst) {
+		Nester nester = new Nester(src, dst, null);
 
 		nester.findNestedClasses();
 		nester.fixNestedClasses();
 	}
 
+	/**
+	 * Fix the jar at the given source path using Nester's automatic nested
+	 * class detection and write it to the given destination path.
+	 */
+	public static void generateMappings(Path src, Path mappings) {
+		Nester nester = new Nester(src, null, mappings);
+
+		nester.findNestedClasses();
+		nester.writeNestedClasses();
+	}
+
 	private final Path src;
 	private final Path dst;
+	private final Path mappings;
+
 	private final SourceJar jar;
 
-	private Nester(Path src, Path dst) {
+	private Nester(Path src, Path dst, Path mappings) {
+		if (dst == null && mappings == null) {
+			throw new IllegalArgumentException("must provide destination path and/or mappings path!");
+		}
+
 		this.src = src;
 		this.dst = dst;
+		this.mappings = mappings;
+
 		this.jar = new SourceJar(this.src);
 	}
 
@@ -56,15 +91,21 @@ public class Nester {
 		System.out.println("Found " + found + " nested classes!");
 	}
 
+	private void readNestedClasses() {
+		MappingIo.read(jar, mappings);
+	}
+
 	private boolean nestClass(ClassNode clazz) {
 		if (clazz.isNested() || !clazz.isNestable()) {
 			return false;
 		}
 
-		ClassNode superClass = clazz.getSuperClass();
+		if (clazz.isEnum()) {
+			ClassNode superClass = clazz.getSuperClass();
 
-		if (clazz.isEnum() && !superClass.getName().equals("java/lang/Enum")) {
-			return superClass.addAnonymousClass(null, clazz);
+			if (!superClass.getName().equals("java/lang/Enum")) {
+				return superClass.addAnonymousClass(null, clazz);
+			}
 		}
 		if (clazz.hasSyntheticMembers()) {
 			if (clazz.canBeAnonymous()) {
@@ -273,7 +314,7 @@ public class Nester {
 		System.out.println("Remapped nested class names...");
 	}
 
-	private void writeFixedJar(Path src, Path tmp, Path dst) {
+	private void writeFixedJar(Path src, Path fixedSrc, Path dst) {
 		try (JarOutputStream jos = new JarOutputStream(new FileOutputStream(dst.toFile()))) {
 			try (JarInputStream jis = new JarInputStream(new FileInputStream(src.toFile()))) {
 				for (JarEntry entry; (entry = jis.getNextJarEntry()) != null;) {
@@ -295,7 +336,7 @@ public class Nester {
 
 			System.out.println("Moved over non-class files...");
 
-			try (JarInputStream jis = new JarInputStream(new FileInputStream(tmp.toFile()))) {
+			try (JarInputStream jis = new JarInputStream(new FileInputStream(fixedSrc.toFile()))) {
 				for (JarEntry entry; (entry = jis.getNextJarEntry()) != null;) {
 					if (entry.getName().endsWith(".class")) {
 						jos.putNextEntry(new JarEntry(entry.getName()));
@@ -319,5 +360,9 @@ public class Nester {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
+	}
+
+	private void writeNestedClasses() {
+		MappingIo.write(jar, mappings);
 	}
 }

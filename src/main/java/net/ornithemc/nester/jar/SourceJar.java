@@ -236,6 +236,9 @@ public class SourceJar {
 		return Collections.unmodifiableCollection(protoClasses.values());
 	}
 
+	/**
+	 * Returns a proto class from its given name.
+	 */
 	public ProtoClassNode getProtoClass(String name) {
 		return protoClasses.get(name);
 	}
@@ -244,10 +247,16 @@ public class SourceJar {
 		return Collections.unmodifiableCollection(classes.values());
 	}
 
+	/**
+	 * Returns a class from its given proto name.
+	 */
 	public ClassNode getClass(String name) {
 		return classes.get(name);
 	}
 
+	/**
+	 * Returns a set of all nodes that reference the given node.
+	 */
 	public Collection<Node> getReferences(Node node) {
 		return references.getOrDefault(node, Collections.emptySet());
 	}

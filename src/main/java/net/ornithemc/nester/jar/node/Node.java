@@ -29,10 +29,6 @@ public abstract class Node {
 		this.name = this.proto.getName();
 	}
 
-	public String dab() {
-		return parent == null || isClass() ? name : parent.dab() + "." + name;
-	}
-
 	@Override
 	public boolean equals(Object obj) {
 		return obj != null && obj instanceof Node && proto.equals(((Node)obj).proto);
