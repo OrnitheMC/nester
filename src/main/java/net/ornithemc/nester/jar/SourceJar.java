@@ -154,7 +154,7 @@ public class SourceJar {
 
 							FieldNode field = clazz.getField(name);
 
-							if (field == null) {
+							if (field == null || field.isSynthetic()) {
 								return visitor;
 							}
 
