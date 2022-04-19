@@ -255,6 +255,14 @@ public class SourceJar {
 	}
 
 	/**
+	 * Check if the given class is contained in the jar or if it is
+	 * merely a reference to a class in a library or the JRE.
+	 */
+	public boolean hasClass(ClassNode clazz) {
+		return classes.containsKey(clazz.getName());
+	}
+
+	/**
 	 * Returns a set of all nodes that reference the given node.
 	 */
 	public Collection<Node> getReferences(Node node) {

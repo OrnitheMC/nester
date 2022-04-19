@@ -7,6 +7,8 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import org.objectweb.asm.Opcodes;
+
 import net.ornithemc.nester.jar.node.proto.ProtoClassNode;
 import net.ornithemc.nester.jar.node.proto.ProtoFieldNode;
 import net.ornithemc.nester.jar.node.proto.ProtoMethodNode;
@@ -17,7 +19,9 @@ public class ClassNode extends Node {
 	private final ClassNode[] interfaces;
 
 	private final Map<String, FieldNode> fields;
+	private final Map<String, FieldNode> syntheticFields;
 	private final Map<String, MethodNode> methods;
+	private final Map<String, MethodNode> declaredMethods;
 	private final Map<String, MethodNode> syntheticMethods;
 	private final Map<String, MethodNode> constructors;
 
@@ -39,7 +43,9 @@ public class ClassNode extends Node {
 		this.interfaces = interfaces;
 
 		this.fields = new HashMap<>();
+		this.syntheticFields = new HashMap<>();
 		this.methods = new HashMap<>();
+		this.declaredMethods = new HashMap<>();
 		this.syntheticMethods = new HashMap<>();
 		this.constructors = new HashMap<>();
 
@@ -80,10 +86,12 @@ public class ClassNode extends Node {
 			if (node.isField()) {
 				FieldNode field = node.asField();
 				ProtoFieldNode protoField = field.proto();
+				String name = protoField.getName();
 
-				fields.put(protoField.getName(), field);
+				fields.put(name, field);
 
 				if (field.isSynthetic()) {
+					syntheticFields.put(name, field);
 					hasSyntheticFields = true;
 				}
 			}
@@ -94,12 +102,15 @@ public class ClassNode extends Node {
 
 				methods.put(fullName, method);
 
-				if (method.isInstanceConstructor()) {
-					constructors.put(fullName, method);
+				if (!method.isClassConstructor() && !method.isInstanceConstructor() && !method.isSynthetic()) {
+					declaredMethods.put(fullName, method);
 				}
 				if (method.isSynthetic() && !method.isBridge()) {
 					syntheticMethods.put(fullName, method);
 					hasSyntheticMethods = true;
+				}
+				if (method.isInstanceConstructor()) {
+					constructors.put(fullName, method);
 				}
 			}
 
@@ -143,6 +154,10 @@ public class ClassNode extends Node {
 		return Collections.unmodifiableCollection(fields.values());
 	}
 
+	public Collection<FieldNode> getSyntheticFields() {
+		return Collections.unmodifiableCollection(syntheticFields.values());
+	}
+
 	/**
 	 * Retrieve a field node from the name of its proto field
 	 */
@@ -152,6 +167,10 @@ public class ClassNode extends Node {
 
 	public Collection<MethodNode> getMethods() {
 		return Collections.unmodifiableCollection(methods.values());
+	}
+
+	public Collection<MethodNode> getDeclaredMethods() {
+		return Collections.unmodifiableCollection(declaredMethods.values());
 	}
 
 	public Collection<MethodNode> getSyntheticMethods() {
@@ -202,7 +221,13 @@ public class ClassNode extends Node {
 			return false;
 		}
 
-String oldName = clazz.getName();
+		// Non-static inner class store a reference to an instance of
+		// the enclosing class in a synthetic field.
+		if (!clazz.hasSyntheticFields()) {
+			clazz.enableAccess(Opcodes.ACC_STATIC);
+		}
+
+		String oldName = clazz.getName();
 		String simpleName = getSimpleName(clazz);
 		clazz.setSimpleName(simpleName);
 		String name = getName() + "$" + simpleName;
@@ -228,7 +253,7 @@ String oldName = clazz.getName();
 		clazz.setSimpleName(null);
 		String name = getName() + "$" + anonymousClasses.size();
 		clazz.setName(name);
-System.out.println(getName() + " add anon " + name + " (was " + oldName + ")");
+System.out.println(getName() + " add anon " + name + " (was " + oldName + ")" );
 		anonymousClasses.add(clazz);
 
 		return true;

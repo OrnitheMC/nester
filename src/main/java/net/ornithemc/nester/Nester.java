@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
 import java.util.jar.JarOutputStream;
@@ -20,6 +21,7 @@ import net.fabricmc.tinyremapper.OutputConsumerPath;
 import net.fabricmc.tinyremapper.TinyRemapper;
 import net.ornithemc.nester.jar.SourceJar;
 import net.ornithemc.nester.jar.node.ClassNode;
+import net.ornithemc.nester.jar.node.FieldNode;
 import net.ornithemc.nester.jar.node.MethodNode;
 import net.ornithemc.nester.jar.node.Node;
 import net.ornithemc.nester.jar.node.proto.ProtoClassNode;
@@ -96,58 +98,176 @@ public class Nester {
 	}
 
 	private boolean nestClass(ClassNode clazz) {
-		if (clazz.isNested() || !clazz.isNestable()) {
-			return false;
+		return !clazz.isNested() && clazz.isNestable() && tryNestClass(clazz, false) != null;
+	}
+
+	private ClassNode tryNestClass(ClassNode clazz, boolean checkOnly) {
+		ClassNode enclClass = tryEnum(clazz, checkOnly);
+
+		if (enclClass == null) {
+			enclClass = tryAnonymous(clazz, checkOnly);
+		}
+		if (enclClass == null) {
+			enclClass = tryInner(clazz, checkOnly);
 		}
 
-		if (clazz.isEnum()) {
-			ClassNode superClass = clazz.getSuperClass();
+		return enclClass;
+	}
 
-			if (!superClass.getName().equals("java/lang/Enum")) {
-				return superClass.addAnonymousClass(null, clazz);
+	private ClassNode tryEnum(ClassNode clazz, boolean checkOnly) {
+		if (!clazz.isEnum()) {
+			return null;
+		}
+
+		ClassNode superClass = clazz.getSuperClass();
+
+		if (superClass.getName().equals("java/lang/Enum")) {
+			return null;
+		}
+
+		return checkOrAddAnonymous(clazz, superClass, null, checkOnly);
+	}
+
+	private ClassNode tryAnonymous(ClassNode clazz, boolean checkOnly) {
+		// To avoid turning every class that happens to be referenced
+		// only once into an anonymous class, we only consider classes
+		// that have synthetic fields. These could be references to
+		// local variables in the enclosing method, or a reference to
+		// an instance of the encosing class.
+		if (!clazz.canBeAnonymous() || !clazz.hasSyntheticFields()) {
+			return null;
+		}
+
+		Collection<MethodNode> declaredMethods = clazz.getDeclaredMethods();
+
+		// anonymous classes typically only declare or override 1 method
+		if (declaredMethods.size() != 1) {
+			return null;
+		}
+	
+		Collection<MethodNode> constructors = clazz.getConstructors();
+
+		// anonymous classes have only 1 constructor
+		if (constructors.size() != 1) {
+			return null;
+		}
+
+		MethodNode constr = constructors.iterator().next();
+		Collection<Node> references = jar.getReferences(constr);
+
+		// anonymous classes are only created once
+		if (references.size() != 1) {
+			return null;
+		}
+
+		Node refNode = references.iterator().next();
+
+		if (!refNode.isMethod()) {
+			return null;
+		}
+
+		MethodNode enclMethod = refNode.asMethod();
+		ClassNode enclClass = enclMethod.getParent();
+
+		return checkOrAddAnonymous(clazz, enclClass, enclMethod, checkOnly);
+	}
+
+	private ClassNode tryInner(ClassNode clazz, boolean checkOnly) {
+		// Inner classes usually have a synthetic field to store a
+		// reference to an instance of the enclosing class. This might
+		// be missing if the inner class is static.
+		// There might also be synthetic methods. These are used by
+		// the enclosing class to access members of the inner class.
+		// The enclosing class might also have synthetic methods, used
+		// by the inner class to access members of the enclosing class.
+		// However, these only exist if the inner class is not static,
+		// since static inner classes cannot access instance members of
+		// the enclosing class.
+		if (!clazz.canBeInner() || !clazz.hasSyntheticMembers()) {
+			return null;
+		}
+
+		// Inner classes have 1 synthetic field: a reference to
+		// an instance of the enclosing class.
+		if (clazz.hasSyntheticFields()) {
+			Collection<FieldNode> syntheticFields = clazz.getSyntheticFields();
+
+			// If there are more synthetic fields, this class is
+			// probably an anonymous class...
+			if (syntheticFields.size() > 1) {
+				return null;
+			}
+
+			FieldNode field = syntheticFields.iterator().next();
+			ClassNode type = field.getType();
+
+			if (jar.hasClass(type)) {
+				return checkOrAddInner(clazz, type, checkOnly);
 			}
 		}
-		if (clazz.hasSyntheticMembers()) {
-			if (clazz.canBeAnonymous()) {
-				Collection<MethodNode> constructors = clazz.getConstructors();
 
-				// anonymous classes have only 1 constructor
-				if (constructors.size() == 1) {
-					MethodNode constr = constructors.iterator().next();
-					Collection<Node> references = jar.getReferences(constr);
+		if (checkOnly) {
+			return null;
+		}
 
-					// anonymous classes are only created once
-					if (references.size() == 1) {
-						Node refNode = references.iterator().next();
+		// If the inner class does not reference the enclosing class instance
+		// at all, that synthetic field might be missing. This might be because
+		// the inner class is static, or because it was removed due to being
+		// unused. So then we turn to looking for synthetic methods.
+		Collection<MethodNode> syntheticMethods = clazz.getSyntheticMethods();
+		Set<ClassNode> references = new LinkedHashSet<>();
 
-						if (refNode.isMethod()) {
-							MethodNode enclMethod = refNode.asMethod();
-							ClassNode enclClass = enclMethod.getParent();
-							
-							if (enclClass.addAnonymousClass(enclMethod, clazz)) {
-								return true;
-							}
-						}
+		for (MethodNode method : syntheticMethods) {
+			for (Node ref : jar.getReferences(method)) {
+				if (ref.isClass()) {
+					references.add(ref.asClass());
+				} else {
+					Node parent = ref.getParent();
+
+					if (parent.isClass()) {
+						references.add(parent.asClass());
 					}
 				}
 			}
-			if (clazz.canBeInner()) {
-				Collection<MethodNode> methods = clazz.getSyntheticMethods();
-				Collection<Node> references = new LinkedHashSet<>();
-
-				for (MethodNode method : methods) {
-					references.addAll(jar.getReferences(method));
-				}
-
-				ClassNode enclClass = Node.getClosestCommonParentClass(references);
-
-				if (enclClass != null) {
-					return enclClass.addInnerClass(clazz);
-				}
-			}
 		}
 
-		return false;
+		// Things can get pretty complex, e.g. when there are multiple layers of
+		// nested classes, or if one inner class is referenced from another. We
+		// will not account for all of these scenarios, and will instead look for
+		// the simple case where all references to the inner class come from the
+		// enclosing class.
+		if (references.size() != 1) {
+			return null;
+		}
+
+		ClassNode enclClass = references.iterator().next();
+
+		// Sometimes the enclosing class is mistaken for the inner class.
+		// Usually enclosing classes do not have synthetic fields, unless
+		// the nesting goes multiple levels deep...
+		if (tryNestClass(enclClass, true) == clazz) {
+			return null;
+		}
+
+		return checkOrAddInner(clazz, enclClass, checkOnly);
+	}
+
+	private ClassNode checkOrAddAnonymous(ClassNode clazz, ClassNode enclClass, MethodNode enclMethod, boolean checkOnly) {
+		Node parent = (enclMethod == null) ? enclClass : enclMethod;
+
+		if (checkOnly ? parent.isValidChild(clazz) : enclClass.addAnonymousClass(enclMethod, clazz)) {
+			return enclClass;
+		} else {
+			return null;
+		}
+	}
+
+	private ClassNode checkOrAddInner(ClassNode clazz, ClassNode enclClass, boolean checkOnly) {
+		if (checkOnly ? enclClass.isValidChild(clazz) : enclClass.addInnerClass(clazz)) {
+			return enclClass;
+		} else {
+			return null;
+		}
 	}
 
 	private void fixNestedClasses() {
