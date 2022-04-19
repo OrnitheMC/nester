@@ -90,11 +90,12 @@ public class Nester {
 			}
 		}
 
-		System.out.println("Found " + found + " nested classes!");
+		System.out.println("Found " + found + " nested classes...");
 	}
 
 	private void readNestedClasses() {
 		MappingIo.read(jar, mappings);
+		System.out.println("Read mappings from file...");
 	}
 
 	private boolean nestClass(ClassNode clazz) {
@@ -484,5 +485,7 @@ public class Nester {
 
 	private void writeNestedClasses() {
 		MappingIo.write(jar, mappings);
+		System.out.println("Written mappings to file...");
+		System.out.println("Done!");
 	}
 }

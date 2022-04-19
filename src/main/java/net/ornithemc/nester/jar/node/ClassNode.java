@@ -227,12 +227,11 @@ public class ClassNode extends Node {
 			clazz.enableAccess(Opcodes.ACC_STATIC);
 		}
 
-		String oldName = clazz.getName();
 		String simpleName = getSimpleName(clazz);
 		clazz.setSimpleName(simpleName);
 		String name = getName() + "$" + simpleName;
 		clazz.setName(name);
-System.out.println(getName() + " add inner " + name + " (was " + oldName + ")");
+
 		innerClasses.put(simpleName, clazz);
 
 		return true;
@@ -249,11 +248,10 @@ System.out.println(getName() + " add inner " + name + " (was " + oldName + ")");
 			return false;
 		}
 
-String oldName = clazz.getName();
 		clazz.setSimpleName(null);
 		String name = getName() + "$" + anonymousClasses.size();
 		clazz.setName(name);
-System.out.println(getName() + " add anon " + name + " (was " + oldName + ")" );
+
 		anonymousClasses.add(clazz);
 
 		return true;
