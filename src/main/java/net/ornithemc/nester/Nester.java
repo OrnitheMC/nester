@@ -7,7 +7,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.LinkedHashSet;
-import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
 import java.util.jar.JarOutputStream;
@@ -130,22 +129,18 @@ public class Nester {
 	}
 
 	private ClassNode tryAnonymous(ClassNode clazz, boolean checkOnly) {
-		// To avoid turning every class that happens to be referenced
-		// only once into an anonymous class, we only consider classes
-		// that have synthetic fields. These could be references to
-		// local variables in the enclosing method, or a reference to
-		// an instance of the encosing class.
-		if (!clazz.canBeAnonymous() || !clazz.hasSyntheticFields()) {
+		// anonymous classes are always package private
+		if (!clazz.canBeAnonymous() || !clazz.isPackagePrivate()) {
 			return null;
 		}
 
 		Collection<MethodNode> declaredMethods = clazz.getDeclaredMethods();
 
-		// anonymous classes typically only declare or override 1 method
+		// anonymous classes typically declare or override just 1 method
 		if (declaredMethods.size() != 1) {
 			return null;
 		}
-	
+
 		Collection<MethodNode> constructors = clazz.getConstructors();
 
 		// anonymous classes have only 1 constructor
@@ -215,8 +210,8 @@ public class Nester {
 		// at all, that synthetic field might be missing. This might be because
 		// the inner class is static, or because it was removed due to being
 		// unused. So then we turn to looking for synthetic methods.
+		Collection<ClassNode> references = new LinkedHashSet<>();
 		Collection<MethodNode> syntheticMethods = clazz.getSyntheticMethods();
-		Set<ClassNode> references = new LinkedHashSet<>();
 
 		for (MethodNode method : syntheticMethods) {
 			for (Node ref : jar.getReferences(method)) {
@@ -320,10 +315,11 @@ public class Nester {
 								if (clazz != null) {
 									addReference(clazz);
 
-									for (Node node : clazz.getChildren()) {
-										if (node.isClass()) {
-											addReference(node.asClass());
-										}
+									for (ClassNode anonClass : clazz.getAnonymousClasses()) {
+										addReference(anonClass);
+									}
+									for (ClassNode innerClass : clazz.getInnerClasses()) {
+										addReference(innerClass);
 									}
 								}
 

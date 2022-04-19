@@ -109,7 +109,7 @@ public class ClassNode extends Node {
 					syntheticMethods.put(fullName, method);
 					hasSyntheticMethods = true;
 				}
-				if (method.isInstanceConstructor()) {
+				if (method.isInstanceConstructor() && !method.isSynthetic()) {
 					constructors.put(fullName, method);
 				}
 			}
@@ -241,6 +241,10 @@ public class ClassNode extends Node {
 		return clazz.getName(); // TODO: generate unique (within this class) simple names
 	}
 
+	public Collection<ClassNode> getInnerClasses() {
+		return Collections.unmodifiableCollection(innerClasses.values());
+	}
+
 	public boolean addAnonymousClass(MethodNode enclMethod, ClassNode clazz) {
 		Node parent = (enclMethod == null) ? this : enclMethod;
 
@@ -255,6 +259,10 @@ public class ClassNode extends Node {
 		anonymousClasses.add(clazz);
 
 		return true;
+	}
+
+	public Collection<ClassNode> getAnonymousClasses() {
+		return Collections.unmodifiableCollection(anonymousClasses);
 	}
 
 	public String getSimpleName() {
