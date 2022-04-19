@@ -3,6 +3,8 @@
 /.gradle
 /.idea
 /run
+*.jar
+*.nest
 
 # eclipse
 .eclipse
