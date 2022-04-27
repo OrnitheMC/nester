@@ -53,6 +53,10 @@ public class ClassNode extends Node {
 		this.anonymousClasses = new HashSet<>();
 
 		this.canBeAnonymous = true;
+
+		if (this.superClass != null) {
+			this.superClass.markNotAnonymous();
+		}
 	}
 
 	@Override
@@ -132,6 +136,25 @@ public class ClassNode extends Node {
 	@Override
 	public boolean canRename() {
 		return superClass != null;
+	}
+
+	@Override
+	protected boolean setNodeName(String name) {
+		if (super.setNodeName(name)) {
+			int i = getFirstAnonIndex();
+			for (ClassNode clazz : anonymousClasses) {
+				String newName = name + "$" + i++;
+				clazz.setName(newName);
+			}
+			for (ClassNode clazz : innerClasses.values()) {
+				String newName = name + "$" + clazz.simpleName;
+				clazz.setName(newName);
+			}
+
+			return true;
+		}
+
+		return false;
 	}
 
 	public boolean isNestable() {
@@ -227,18 +250,18 @@ public class ClassNode extends Node {
 			clazz.enableAccess(Opcodes.ACC_STATIC);
 		}
 
+		innerClasses.put(simpleName, clazz);
+
 		String simpleName = getSimpleName(clazz);
 		clazz.setSimpleName(simpleName);
 		String name = getName() + "$" + simpleName;
 		clazz.setName(name);
 
-		innerClasses.put(simpleName, clazz);
-
 		return true;
 	}
 
 	private String getSimpleName(ClassNode clazz) {
-		return clazz.getName(); // TODO: generate unique (within this class) simple names
+		return clazz.proto().getName(); // TODO: generate unique (within this class) simple names
 	}
 
 	public Collection<ClassNode> getInnerClasses() {
@@ -252,13 +275,17 @@ public class ClassNode extends Node {
 			return false;
 		}
 
-		clazz.setSimpleName(null);
-		String name = getName() + "$" + anonymousClasses.size();
-		clazz.setName(name);
-
 		anonymousClasses.add(clazz);
 
+		clazz.setSimpleName(null);
+		String name = getName() + "$" + (getFirstAnonIndex() + anonymousClasses.size());
+		clazz.setName(name);
+
 		return true;
+	}
+
+	private int getFirstAnonIndex() {
+		return getChildren().size() - fields.size() - methods.size() - innerClasses.size();
 	}
 
 	public Collection<ClassNode> getAnonymousClasses() {
