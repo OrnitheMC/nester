@@ -297,7 +297,7 @@ public class Nester {
 		// the nesting goes multiple levels deep...
 		Nest enclNest = tryNestClass(enclClass, true);
 
-		if (enclNest != null && clazz.getName().equals(enclNest.className)) {
+		if (enclNest != null && clazz.getName().equals(enclNest.enclClassName)) {
 			return null;
 		}
 
