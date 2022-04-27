@@ -310,10 +310,18 @@ public abstract class Node {
 		return name;
 	}
 
-	public void setName(String name) {
-		if (canRename() && isValidName(name)) {
+	public boolean setName(String name) {
+		return canRename() && isValidName(name) && setNodeName(name);
+	}
+
+	protected boolean setNodeName(String name) {
+		boolean changed = !this.name.equals(name);
+
+		if (changed) {
 			this.name = name;
 		}
+
+		return changed;
 	}
 
 	public boolean canRename() {

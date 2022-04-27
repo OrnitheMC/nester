@@ -24,8 +24,10 @@ import net.ornithemc.nester.jar.node.FieldNode;
 import net.ornithemc.nester.jar.node.MethodNode;
 import net.ornithemc.nester.jar.node.Node;
 import net.ornithemc.nester.jar.node.proto.ProtoClassNode;
-import net.ornithemc.nester.jar.node.proto.ProtoMethodNode;
-import net.ornithemc.nester.serdes.MappingIo;
+import net.ornithemc.nester.mapping.Nest;
+import net.ornithemc.nester.mapping.NestType;
+import net.ornithemc.nester.mapping.NesterIo;
+import net.ornithemc.nester.mapping.Nests;
 
 public class Nester {
 
@@ -34,9 +36,17 @@ public class Nester {
 	 * write it to the given destination path.
 	 */
 	public static void fixJar(Path src, Path dst, Path mappings) {
-		Nester nester = new Nester(src, dst, mappings);
+		fixJar(src, dst, Nests.of(mappings));
+	}
 
-		nester.readNestedClasses();
+	/**
+	 * Fix the jar at the given source path with the given mappings and
+	 * write it to the given destination path.
+	 */
+	public static void fixJar(Path src, Path dst, Nests nests) {
+		Nester nester = new Nester(src, dst, null, nests);
+
+		nester.applyMappings();
 		nester.fixNestedClasses();
 	}
 
@@ -45,7 +55,7 @@ public class Nester {
 	 * class detection and write it to the given destination path.
 	 */
 	public static void fixJar(Path src, Path dst) {
-		Nester nester = new Nester(src, dst, null);
+		Nester nester = new Nester(src, dst, null, Nests.empty());
 
 		nester.findNestedClasses();
 		nester.fixNestedClasses();
@@ -53,10 +63,10 @@ public class Nester {
 
 	/**
 	 * Fix the jar at the given source path using Nester's automatic nested
-	 * class detection and write it to the given destination path.
+	 * class detection and write the mappings to the given destination path.
 	 */
 	public static void generateMappings(Path src, Path mappings) {
-		Nester nester = new Nester(src, null, mappings);
+		Nester nester = new Nester(src, null, mappings, Nests.empty());
 
 		nester.findNestedClasses();
 		nester.writeNestedClasses();
@@ -67,8 +77,9 @@ public class Nester {
 	private final Path mappings;
 
 	private final SourceJar jar;
+	private final Nests nests;
 
-	private Nester(Path src, Path dst, Path mappings) {
+	private Nester(Path src, Path dst, Path mappings, Nests nests) {
 		if (dst == null && mappings == null) {
 			throw new IllegalArgumentException("must provide destination path and/or mappings path!");
 		}
@@ -78,13 +89,65 @@ public class Nester {
 		this.mappings = mappings;
 
 		this.jar = new SourceJar(this.src);
+		this.nests = nests;
+	}
+
+	private void applyMappings() {
+		int applied = 0;
+
+		for (Nest nest : nests.get()) {
+			ClassNode clazz = jar.getClass(nest.className);
+
+			if (clazz == null) {
+				continue;
+			}
+
+			ClassNode enclClass = jar.getClass(nest.enclClassName);
+
+			if (enclClass == null) {
+				continue;
+			}
+
+			MethodNode method = null;
+
+			if (nest.type == NestType.ANONYMOUS && nest.enclMethodName != null) {
+				method = enclClass.getMethod(nest.enclMethodName, nest.enclMethodDesc);
+
+				if (method == null) {
+					continue;
+				}
+			}
+			if (nest.type == NestType.INNER && nest.innerName == null) {
+				continue;
+			}
+
+			clazz.enableAccess(nest.access);
+
+			if (nest.type == NestType.ANONYMOUS) {
+				enclClass.addAnonymousClass(method, clazz);
+			} else {
+				enclClass.addInnerClass(clazz);
+				clazz.setSimpleName(nest.innerName);
+			}
+
+			applied++;
+		}
+
+		System.out.println("Applied " + applied + " nested class mappings...");
 	}
 
 	private void findNestedClasses() {
 		int found = 0;
 
 		for (ClassNode clazz : jar.getClasses()) {
-			if (nestClass(clazz)) {
+			if (!clazz.isNestable() || clazz.isNested()) {
+				continue;
+			}
+
+			Nest nest = tryNestClass(clazz, false);
+
+			if (nest != null) {
+				nests.add(nest);
 				found++;
 			}
 		}
@@ -92,29 +155,20 @@ public class Nester {
 		System.out.println("Found " + found + " nested classes...");
 	}
 
-	private void readNestedClasses() {
-		MappingIo.read(jar, mappings);
-		System.out.println("Read mappings from file...");
-	}
+	private Nest tryNestClass(ClassNode clazz, boolean checkOnly) {
+		Nest nest = tryEnum(clazz, checkOnly);
 
-	private boolean nestClass(ClassNode clazz) {
-		return !clazz.isNested() && clazz.isNestable() && tryNestClass(clazz, false) != null;
-	}
-
-	private ClassNode tryNestClass(ClassNode clazz, boolean checkOnly) {
-		ClassNode enclClass = tryEnum(clazz, checkOnly);
-
-		if (enclClass == null) {
-			enclClass = tryAnonymous(clazz, checkOnly);
+		if (nest == null) {
+			nest = tryAnonymous(clazz, checkOnly);
 		}
-		if (enclClass == null) {
-			enclClass = tryInner(clazz, checkOnly);
+		if (nest == null) {
+			nest = tryInner(clazz, checkOnly);
 		}
 
-		return enclClass;
+		return nest;
 	}
 
-	private ClassNode tryEnum(ClassNode clazz, boolean checkOnly) {
+	private Nest tryEnum(ClassNode clazz, boolean checkOnly) {
 		if (!clazz.isEnum()) {
 			return null;
 		}
@@ -128,7 +182,7 @@ public class Nester {
 		return checkOrAddAnonymous(clazz, superClass, null, checkOnly);
 	}
 
-	private ClassNode tryAnonymous(ClassNode clazz, boolean checkOnly) {
+	private Nest tryAnonymous(ClassNode clazz, boolean checkOnly) {
 		// anonymous classes are always package private
 		if (!clazz.canBeAnonymous() || !clazz.isPackagePrivate()) {
 			return null;
@@ -168,7 +222,7 @@ public class Nester {
 		return checkOrAddAnonymous(clazz, enclClass, enclMethod, checkOnly);
 	}
 
-	private ClassNode tryInner(ClassNode clazz, boolean checkOnly) {
+	private Nest tryInner(ClassNode clazz, boolean checkOnly) {
 		// Inner classes usually have a synthetic field to store a
 		// reference to an instance of the enclosing class. This might
 		// be missing if the inner class is static.
@@ -241,26 +295,28 @@ public class Nester {
 		// Sometimes the enclosing class is mistaken for the inner class.
 		// Usually enclosing classes do not have synthetic fields, unless
 		// the nesting goes multiple levels deep...
-		if (tryNestClass(enclClass, true) == clazz) {
+		Nest enclNest = tryNestClass(enclClass, true);
+
+		if (enclNest != null && clazz.getName().equals(enclNest.enclClassName)) {
 			return null;
 		}
 
 		return checkOrAddInner(clazz, enclClass, checkOnly);
 	}
 
-	private ClassNode checkOrAddAnonymous(ClassNode clazz, ClassNode enclClass, MethodNode enclMethod, boolean checkOnly) {
+	private Nest checkOrAddAnonymous(ClassNode clazz, ClassNode enclClass, MethodNode enclMethod, boolean checkOnly) {
 		Node parent = (enclMethod == null) ? enclClass : enclMethod;
 
 		if (checkOnly ? parent.isValidChild(clazz) : enclClass.addAnonymousClass(enclMethod, clazz)) {
-			return enclClass;
+			return Nest.anonymous(clazz, enclClass, enclMethod);
 		} else {
 			return null;
 		}
 	}
 
-	private ClassNode checkOrAddInner(ClassNode clazz, ClassNode enclClass, boolean checkOnly) {
+	private Nest checkOrAddInner(ClassNode clazz, ClassNode enclClass, boolean checkOnly) {
 		if (checkOnly ? enclClass.isValidChild(clazz) : enclClass.addInnerClass(clazz)) {
-			return enclClass;
+			return Nest.inner(clazz, enclClass);
 		} else {
 			return null;
 		}
@@ -296,94 +352,42 @@ public class Nester {
 						ClassWriter writer = new ClassWriter(reader, 0);
 						ClassVisitor visitor = new ClassVisitor(Opcodes.ASM9, writer) {
 
-							private ProtoClassNode protoClass;
-							private ClassNode clazz;
+							private String name;
+							private Collection<Nest> nests;
 
 							@Override
 							public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
-								protoClass = jar.getProtoClass(name);
-
-								if (protoClass != null) {
-									clazz = protoClass.node();
-								}
+								this.name = name;
+								this.nests = Nester.this.nests.get(this.name);
 
 								super.visit(version, access, name, signature, superName, interfaces);
 							}
 
 							@Override
 							public void visitEnd() {
-								if (clazz != null) {
-									addReference(clazz);
-
-									for (ClassNode anonClass : clazz.getAnonymousClasses()) {
-										addReference(anonClass);
-									}
-									for (ClassNode innerClass : clazz.getInnerClasses()) {
-										addReference(innerClass);
+								if (nests != null) {
+									for (Nest nest : nests) {
+										addAttribute(nest);
 									}
 								}
 
 								super.visitEnd();
 							}
 
-							private void addReference(ClassNode innerClass) {
-								Node parent = innerClass.getParent();
-
-								ClassNode enclClass = null;
-								MethodNode enclMethod = null;
-
-								if (parent == null) {
-									return;
-								} else if (parent.isClass()) {
-									enclClass = parent.asClass();
-								} else if (parent.isMethod()) {
-									enclMethod = parent.asMethod();
-									enclClass = enclMethod.getParent();
-								} else {
-									return;
+							private void addAttribute(Nest nest) {
+								if (nest.className.equals(name)) {
+									visitOuterClass(nest);
 								}
 
-								if (innerClass == clazz) {
-									addOuterReference(enclClass, enclMethod);
-								}
-
-								addInnerReference(enclClass, innerClass);
+								visitInnerClass(nest);
 							}
 
-							private void addOuterReference(ClassNode enclClass, MethodNode enclMethod) {
-								// Remapping happens later so the proto names must be used
-								ProtoClassNode protoEnclClass = enclClass.proto();
-
-								String enclosingClassName = protoEnclClass.getName();
-								String enclosingMethodName = null;
-								String enclosingMethodDescriptor = null;
-
-								if (enclMethod != null) {
-									// Remapping happens later so the proto names must be used
-									ProtoMethodNode protoEnclMethod = enclMethod.proto();
-
-									enclosingMethodName = protoEnclMethod.getName();
-									enclosingMethodDescriptor = protoEnclMethod.getDescriptor();
-								}
-
-								visitOuterClass(enclosingClassName, enclosingMethodName, enclosingMethodDescriptor);
+							private void visitOuterClass(Nest nest) {
+								visitOuterClass(nest.enclClassName, nest.enclMethodName, nest.enclMethodDesc);
 							}
 
-							private void addInnerReference(ClassNode enclClass, ClassNode innerClass) {
-								// Remapping happens later so the proto names must be used
-								ProtoClassNode protoEnclClass = enclClass.proto();
-								ProtoClassNode protoInnerClass = innerClass.proto();
-
-								String name = protoInnerClass.getName();
-								String outerName = protoEnclClass.getName();
-								String innerName = innerClass.getSimpleName();
-								int access = protoInnerClass.getAccess();
-
-								if (innerName == null) {
-									outerName = null;
-								}
-
-								visitInnerClass(name, outerName, innerName, access);
+							private void visitInnerClass(Nest nest) {
+								visitInnerClass(nest.className, nest.innerName == null ? null : nest.enclClassName, nest.innerName, nest.access);
 							}
 						};
 
@@ -410,11 +414,11 @@ public class Nester {
 			for (ClassNode clazz : jar.getClasses()) {
 				ProtoClassNode protoClass = clazz.proto();
 
-				String protoName = protoClass.getName();
-				String name = clazz.getName();
+				String oldName = protoClass.getName();
+				String newName = clazz.getName();
 
-				if (!name.equals(protoName)) {
-					ma.acceptClass(protoName, name);
+				if (!newName.equals(oldName)) {
+					ma.acceptClass(oldName, newName);
 				}
 			}
 		}).build();
@@ -480,7 +484,7 @@ public class Nester {
 	}
 
 	private void writeNestedClasses() {
-		MappingIo.write(jar, mappings);
+		NesterIo.write(nests, mappings);
 		System.out.println("Written mappings to file...");
 		System.out.println("Done!");
 	}
