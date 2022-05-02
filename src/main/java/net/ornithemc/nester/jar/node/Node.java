@@ -296,14 +296,18 @@ public abstract class Node {
 
 	public void enableAccess(int... opcodes) {
 		for (int opcode : opcodes) {
-			access |= opcode;
+			setAccess(access | opcode);
 		}
 	}
 
 	public void disableAccess(int... opcodes) {
 		for (int opcode : opcodes) {
-			access &= ~opcode;
+			setAccess(access & ~opcode);
 		}
+	}
+
+	public void setAccess(int access) {
+		this.access = access;
 	}
 
 	public String getName() {
