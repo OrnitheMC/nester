@@ -27,7 +27,7 @@ public class Nest {
 		this.access = access;
 	}
 
-	static Nest of(NestType type, ClassNode clazz, ClassNode enclClass, MethodNode enclMethod) {
+	static Nest of(NestType type, ClassNode clazz, ClassNode enclClass, MethodNode enclMethod, int access) {
 		ProtoClassNode protoClass = clazz.proto();
 		ProtoClassNode protoEnclClass = enclClass.proto();
 
@@ -36,7 +36,6 @@ public class Nest {
 		String enclMethodName = null;
 		String enclMethodDesc = null;
 		String innerName = null;
-		int access = clazz.getAccess();
 
 		if (type == NestType.ANONYMOUS && enclMethod != null) {
 			ProtoMethodNode protoMethod = enclMethod.proto();
@@ -52,10 +51,14 @@ public class Nest {
 	}
 
 	public static Nest anonymous(ClassNode clazz, ClassNode enclClass, MethodNode enclMethod) {
-		return of(NestType.ANONYMOUS, clazz, enclClass, enclMethod);
+		return of(NestType.ANONYMOUS, clazz, enclClass, enclMethod, clazz.getAccess());
+	}
+
+	public static Nest inner(ClassNode clazz, ClassNode enclClass, int access) {
+		return of(NestType.INNER, clazz, enclClass, null, access);
 	}
 
 	public static Nest inner(ClassNode clazz, ClassNode enclClass) {
-		return of(NestType.INNER, clazz, enclClass, null);
+		return of(NestType.INNER, clazz, enclClass, null, clazz.getAccess());
 	}
 }

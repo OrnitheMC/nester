@@ -121,7 +121,7 @@ public class Nester {
 				continue;
 			}
 
-			clazz.enableAccess(nest.access);
+			clazz.setAccess(nest.access);
 
 			if (nest.type == NestType.ANONYMOUS) {
 				enclClass.addAnonymousClass(method, clazz);
