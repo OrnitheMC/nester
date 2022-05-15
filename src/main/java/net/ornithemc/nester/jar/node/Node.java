@@ -2,7 +2,6 @@ package net.ornithemc.nester.jar.node;
 
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -335,21 +334,5 @@ public abstract class Node {
 
 	public boolean isValidName(String name) {
 		return true; // TODO: test for keywords and invalid characters
-	}
-
-	public Comparator<Node> getNameComparator() {
-		return (n1, n2) -> {
-			String name1 = n1.proto.getName();
-			String name2 = n2.proto.getName();
-
-			int l1 = name1.length();
-			int l2 = name2.length();
-
-			if (l1 == l2) {
-				return name1.compareTo(name2);
-			}
-
-			return l1 - l2;
-		};
 	}
 }

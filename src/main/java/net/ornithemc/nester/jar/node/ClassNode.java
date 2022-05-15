@@ -51,7 +51,7 @@ public class ClassNode extends Node {
 		this.constructors = new HashMap<>();
 
 		this.innerClasses = new LinkedHashMap<>();
-		this.anonymousClasses = new TreeSet<>(getNameComparator());
+		this.anonymousClasses = new TreeSet<>(ClassNode::compareByName);
 
 		this.firstAnonIndex = 1;
 
@@ -60,6 +60,20 @@ public class ClassNode extends Node {
 		if (this.superClass != null) {
 			this.superClass.markNotAnonymous();
 		}
+	}
+
+	public static int compareByName(ClassNode c1, ClassNode c2) {
+		String name1 = c1.proto().getName();
+		String name2 = c2.proto().getName();
+
+		int l1 = name1.length();
+		int l2 = name2.length();
+
+		if (l1 == l2) {
+			return name1.compareTo(name2);
+		}
+
+		return l1 - l2;
 	}
 
 	@Override
