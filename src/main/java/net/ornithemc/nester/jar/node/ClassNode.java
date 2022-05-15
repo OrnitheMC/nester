@@ -53,6 +53,8 @@ public class ClassNode extends Node {
 		this.innerClasses = new LinkedHashMap<>();
 		this.anonymousClasses = new TreeSet<>(getNameComparator());
 
+		this.firstAnonIndex = 1;
+
 		this.canBeAnonymous = true;
 
 		if (this.superClass != null) {
