@@ -338,6 +338,18 @@ public abstract class Node {
 	}
 
 	public Comparator<Node> getNameComparator() {
-		return Comparator.comparing(n -> n.proto().getName());
+		return (n1, n2) -> {
+			String name1 = n1.proto.getName();
+			String name2 = n2.proto.getName();
+
+			int l1 = name1.length();
+			int l2 = name2.length();
+
+			if (l1 == l2) {
+				return name1.compareTo(name2);
+			}
+
+			return l1 - l2;
+		};
 	}
 }
