@@ -3,11 +3,10 @@ package net.ornithemc.nester.jar.node;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
-
-import org.objectweb.asm.Opcodes;
+import java.util.TreeSet;
 
 import net.ornithemc.nester.jar.node.proto.ProtoClassNode;
 import net.ornithemc.nester.jar.node.proto.ProtoFieldNode;
@@ -27,6 +26,8 @@ public class ClassNode extends Node {
 
 	private final Map<String, ClassNode> innerClasses;
 	private final Set<ClassNode> anonymousClasses;
+
+	private int firstAnonIndex;
 
 	private boolean hasSyntheticFields;
 	private boolean hasSyntheticMethods;
@@ -49,8 +50,8 @@ public class ClassNode extends Node {
 		this.syntheticMethods = new HashMap<>();
 		this.constructors = new HashMap<>();
 
-		this.innerClasses = new HashMap<>();
-		this.anonymousClasses = new HashSet<>();
+		this.innerClasses = new LinkedHashMap<>();
+		this.anonymousClasses = new TreeSet<>(getNameComparator());
 
 		this.canBeAnonymous = true;
 
@@ -87,6 +88,27 @@ public class ClassNode extends Node {
 	@Override
 	protected boolean addChildNode(Node node) {
 		if (super.addChildNode(node)) {
+			if (node.isClass()) {
+				ClassNode clazz = node.asClass();
+				ProtoClassNode protoClass = clazz.proto();
+
+				String name = protoClass.getName();
+				int i = name.lastIndexOf('$');
+
+				if (i > 0) {
+					String innerName = name.substring(i + 1);
+
+					try {
+						int index = Integer.valueOf(innerName);
+
+						if (index >= firstAnonIndex) {
+							firstAnonIndex = index + 1;
+						}
+					} catch (NumberFormatException e) {
+
+					}
+				}
+			}
 			if (node.isField()) {
 				FieldNode field = node.asField();
 				ProtoFieldNode protoField = field.proto();
@@ -118,6 +140,8 @@ public class ClassNode extends Node {
 				}
 			}
 
+			fixAnonymousClassNames();
+
 			if (node.isStatic() && (!node.isField() || !node.isFinal())) {
 				hasStaticMembers = true;
 			}
@@ -141,20 +165,35 @@ public class ClassNode extends Node {
 	@Override
 	protected boolean setNodeName(String name) {
 		if (super.setNodeName(name)) {
-			int i = getFirstAnonIndex();
-			for (ClassNode clazz : anonymousClasses) {
-				String newName = name + "$" + i++;
-				clazz.setName(newName);
-			}
-			for (ClassNode clazz : innerClasses.values()) {
-				String newName = name + "$" + clazz.simpleName;
-				clazz.setName(newName);
-			}
+			fixAnonymousClassNames();
+			fixInnerClassNames();
 
 			return true;
 		}
 
 		return false;
+	}
+
+	private void fixAnonymousClassNames() {
+		String name = getName();
+		int i = firstAnonIndex;
+
+		for (ClassNode clazz : anonymousClasses) {
+			clazz.setSimpleName(null);
+			String newName = name + "$" + i++;
+			clazz.setName(newName);
+		}
+	}
+
+	private void fixInnerClassNames() {
+		String name = getName();
+
+		for (ClassNode clazz : innerClasses.values()) {
+			String simpleName = getSimpleName(clazz);
+			clazz.setSimpleName(simpleName);
+			String newName = name + "$" + clazz.simpleName;
+			clazz.setName(newName);
+		}
 	}
 
 	public boolean isNestable() {
@@ -244,18 +283,10 @@ public class ClassNode extends Node {
 			return false;
 		}
 
-		// Non-static inner class store a reference to an instance of
-		// the enclosing class in a synthetic field.
-		if (!clazz.hasSyntheticFields()) {
-			clazz.enableAccess(Opcodes.ACC_STATIC);
-		}
-
 		innerClasses.put(simpleName, clazz);
 
-		String simpleName = getSimpleName(clazz);
-		clazz.setSimpleName(simpleName);
-		String name = getName() + "$" + simpleName;
-		clazz.setName(name);
+		fixAnonymousClassNames();
+		fixInnerClassNames();
 
 		return true;
 	}
@@ -277,15 +308,10 @@ public class ClassNode extends Node {
 
 		anonymousClasses.add(clazz);
 
-		clazz.setSimpleName(null);
-		String name = getName() + "$" + (getFirstAnonIndex() + anonymousClasses.size());
-		clazz.setName(name);
+		fixAnonymousClassNames();
+		fixInnerClassNames();
 
 		return true;
-	}
-
-	private int getFirstAnonIndex() {
-		return getChildren().size() - fields.size() - methods.size() - innerClasses.size();
 	}
 
 	public Collection<ClassNode> getAnonymousClasses() {
