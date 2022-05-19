@@ -11,8 +11,7 @@ def ENV = System.getenv()
 
 repositories {
     maven {
-        name = 'Fabric'
-        url = 'https://maven.fabricmc.net/'
+        url = 'https://maven.ornithemc.net/releases'
     }
     mavenCentral()
 }
@@ -33,7 +32,7 @@ dependencies {
     implementation 'org.ow2.asm:asm-commons:9.2'
     implementation 'org.ow2.asm:asm-tree:9.2'
     implementation 'org.ow2.asm:asm-util:9.2'
-    implementation 'net.fabricmc:tiny-remapper:0.8.1'
+    implementation 'net.ornithemc:tiny-remapper:0.8.4'
 
     testImplementation("org.junit.jupiter:junit-jupiter-api:${junitVersion}")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:${junitVersion}")
