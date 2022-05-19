@@ -18,6 +18,7 @@ import org.objectweb.asm.Opcodes;
 
 import net.fabricmc.tinyremapper.OutputConsumerPath;
 import net.fabricmc.tinyremapper.TinyRemapper;
+
 import net.ornithemc.nester.jar.SourceJar;
 import net.ornithemc.nester.jar.node.ClassNode;
 import net.ornithemc.nester.jar.node.FieldNode;
@@ -36,6 +37,10 @@ public class Nester {
 	 * write it to the given destination path.
 	 */
 	public static void fixJar(Path src, Path dst, Path mappings) {
+		if (mappings == null || !Files.isReadable(mappings) || !Files.isRegularFile(mappings)) {
+			throw new NesterException("invalid mappings path");
+		}
+
 		fixJar(src, dst, Nests.of(mappings));
 	}
 
@@ -44,6 +49,16 @@ public class Nester {
 	 * write it to the given destination path.
 	 */
 	public static void fixJar(Path src, Path dst, Nests nests) {
+		if (src == null || !Files.isReadable(src) || !Files.isRegularFile(src)) {
+			throw new NesterException("invalid source path: " + src);
+		}
+		if (dst == null || (Files.exists(dst) && !Files.isWritable(dst))) {
+			throw new NesterException("invalid destination path: " + dst);
+		}
+		if (nests == null) {
+			throw new NesterException("no nests provided");
+		}
+
 		Nester nester = new Nester(src, dst, null, nests);
 
 		nester.applyMappings();
@@ -55,6 +70,13 @@ public class Nester {
 	 * class detection and write it to the given destination path.
 	 */
 	public static void fixJar(Path src, Path dst) {
+		if (src == null || !Files.isReadable(src) || !Files.isRegularFile(src)) {
+			throw new NesterException("invalid source path: " + src);
+		}
+		if (dst == null || (Files.exists(dst) && !Files.isWritable(dst))) {
+			throw new NesterException("invalid destination path: " + dst);
+		}
+
 		Nester nester = new Nester(src, dst, null, Nests.empty());
 
 		nester.findNestedClasses();
@@ -66,6 +88,13 @@ public class Nester {
 	 * class detection and write the mappings to the given destination path.
 	 */
 	public static void generateMappings(Path src, Path mappings) {
+		if (src == null || !Files.isReadable(src) || !Files.isRegularFile(src)) {
+			throw new NesterException("invalid source path: " + src);
+		}
+		if (mappings == null || (Files.exists(mappings) && !Files.isWritable(mappings))) {
+			throw new NesterException("invalid mappings path: " + mappings);
+		}
+
 		Nester nester = new Nester(src, null, mappings, Nests.empty());
 
 		nester.findNestedClasses();
@@ -80,10 +109,6 @@ public class Nester {
 	private final Nests nests;
 
 	private Nester(Path src, Path dst, Path mappings, Nests nests) {
-		if (dst == null && mappings == null) {
-			throw new IllegalArgumentException("must provide destination path and/or mappings path!");
-		}
-
 		this.src = src;
 		this.dst = dst;
 		this.mappings = mappings;
