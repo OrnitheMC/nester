@@ -3,11 +3,13 @@ package net.ornithemc.nester;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.jar.JarInputStream;
 import java.util.jar.JarOutputStream;
 
@@ -18,7 +20,6 @@ import org.objectweb.asm.Opcodes;
 
 import net.fabricmc.tinyremapper.OutputConsumerPath;
 import net.fabricmc.tinyremapper.TinyRemapper;
-
 import net.ornithemc.nester.jar.SourceJar;
 import net.ornithemc.nester.jar.node.ClassNode;
 import net.ornithemc.nester.jar.node.FieldNode;
@@ -462,13 +463,13 @@ public class Nester {
 
 	private void writeFixedJar(Path src, Path fixedSrc, Path dst) {
 		try (JarOutputStream jos = new JarOutputStream(new FileOutputStream(dst.toFile()))) {
+			byte[] buffer = new byte[4096];
+			int read = 0;
+
 			try (JarInputStream jis = new JarInputStream(new FileInputStream(src.toFile()))) {
 				for (JarEntry entry; (entry = jis.getNextJarEntry()) != null;) {
 					if (!entry.getName().endsWith(".class")) {
 						jos.putNextEntry(new JarEntry(entry.getName()));
-
-						byte[] buffer = new byte[4096];
-						int read = 0;
 
 						while ((read = jis.read(buffer)) > 0) {
 							jos.write(buffer, 0, read);
@@ -482,23 +483,27 @@ public class Nester {
 
 			System.out.println("Moved over non-class files...");
 
-			try (JarInputStream jis = new JarInputStream(new FileInputStream(fixedSrc.toFile()))) {
-				for (JarEntry entry; (entry = jis.getNextJarEntry()) != null;) {
-					if (entry.getName().endsWith(".class")) {
-						jos.putNextEntry(new JarEntry(entry.getName()));
+			JarFile fixedSrcJar = new JarFile(fixedSrc.toFile());
 
-						byte[] buffer = new byte[4096];
-						int read = 0;
+			for (ClassNode c : jar.getClasses()) {
+				String className = c.getName();
+				String entryName = className + ".class";
 
-						while ((read = jis.read(buffer)) > 0) {
-							jos.write(buffer, 0, read);
-						}
+				JarEntry entry = fixedSrcJar.getJarEntry(entryName);
 
-						jos.flush();
-						jos.closeEntry();
+				try (InputStream jis = fixedSrcJar.getInputStream(entry)) {
+					jos.putNextEntry(new JarEntry(entryName));
+
+					while ((read = jis.read(buffer)) > 0) {
+						jos.write(buffer, 0, read);
 					}
+
+					jos.flush();
+					jos.closeEntry();
 				}
 			}
+
+			fixedSrcJar.close();
 
 			System.out.println("Moved over class files...");
 
