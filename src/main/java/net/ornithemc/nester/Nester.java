@@ -228,7 +228,7 @@ public class Nester {
 		}
 
 		MethodNode constr = constructors.iterator().next();
-		Collection<Node> references = jar.getReferences(constr);
+		Collection<Node> references = jar.getReferencesTo(constr);
 
 		// anonymous classes are only created once
 		if (references.size() != 1) {
@@ -293,7 +293,7 @@ public class Nester {
 		Collection<MethodNode> syntheticMethods = clazz.getSyntheticMethods();
 
 		for (MethodNode method : syntheticMethods) {
-			for (Node ref : jar.getReferences(method)) {
+			for (Node ref : jar.getReferencesTo(method)) {
 				if (ref.isClass()) {
 					references.add(ref.asClass());
 				} else {
@@ -383,20 +383,44 @@ public class Nester {
 							@Override
 							public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
 								this.name = name;
-								this.nests = Nester.this.nests.get(this.name);
+								this.nests = new LinkedHashSet<>();
+
+								ClassNode c = jar.getClass(this.name);
+
+								if (c != null) {
+									prepareAttribute(c);
+
+									for (ClassNode cc : c.getInnerClasses()) {
+										prepareAttribute(cc);
+									}
+									for (ClassNode cc : c.getAnonymousClasses()) {
+										prepareAttribute(cc);
+									}
+									for (Node n : jar.getReferencesBy(c)) {
+										if (n.isClass()) {
+											prepareAttribute(n.asClass());
+										}
+									}
+								}
 
 								super.visit(version, access, name, signature, superName, interfaces);
 							}
 
 							@Override
 							public void visitEnd() {
-								if (nests != null) {
-									for (Nest nest : nests) {
-										addAttribute(nest);
-									}
+								for (Nest nest : nests) {
+									addAttribute(nest);
 								}
 
 								super.visitEnd();
+							}
+
+							private void prepareAttribute(ClassNode c) {
+								Nest nest = Nester.this.nests.get(c.proto().getName());
+
+								if (nest != null) {
+									nests.add(nest);
+								}
 							}
 
 							private void addAttribute(Nest nest) {

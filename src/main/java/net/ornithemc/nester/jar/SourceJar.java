@@ -33,13 +33,15 @@ public class SourceJar {
 	private final Path src;
 	private final Map<String, ProtoClassNode> protoClasses;
 	private final Map<String, ClassNode> classes;
-	private final Map<Node, Collection<Node>> references;
+	private final Map<Node, Collection<Node>> referencesTo;
+	private final Map<Node, Collection<Node>> referencesBy;
 
 	public SourceJar(Path src) {
 		this.src = src;
 		this.protoClasses = new LinkedHashMap<>();
 		this.classes = new LinkedHashMap<>();
-		this.references = new LinkedHashMap<>();
+		this.referencesTo = new LinkedHashMap<>();
+		this.referencesBy = new LinkedHashMap<>();
 
 		this.read();
 		this.findReferences();
@@ -265,8 +267,15 @@ public class SourceJar {
 	/**
 	 * Returns a set of all nodes that reference the given node.
 	 */
-	public Collection<Node> getReferences(Node node) {
-		return references.getOrDefault(node, Collections.emptySet());
+	public Collection<Node> getReferencesTo(Node node) {
+		return referencesTo.getOrDefault(node, Collections.emptySet());
+	}
+
+	/**
+	 * Returns a set of all nodes that are referenced by the given node.
+	 */
+	public Collection<Node> getReferencesBy(Node node) {
+		return referencesBy.getOrDefault(node, Collections.emptySet());
 	}
 
 	private void addReference(Node node, Node byNode) {
@@ -280,6 +289,21 @@ public class SourceJar {
 			}
 		}
 
-		references.computeIfAbsent(node, key -> new LinkedHashSet<>()).add(byNode);
+		addNodeReference(node, byNode);
+
+		if (!byNode.isClass()) {
+			while (byNode != null && !byNode.isClass()) {
+				byNode = byNode.getParent();
+			}
+
+			if (byNode != null) {
+				addNodeReference(node, byNode);
+			}
+		}
+	}
+
+	private void addNodeReference(Node node, Node byNode) {
+		referencesTo.computeIfAbsent(node, key -> new LinkedHashSet<>()).add(byNode);
+		referencesBy.computeIfAbsent(byNode, key -> new LinkedHashSet<>()).add(node);
 	}
 }
