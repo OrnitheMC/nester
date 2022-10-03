@@ -85,8 +85,8 @@ public abstract class ProtoNode {
 		if (node == null) {
 			node = construct();
 
-			if (innerAccess != 0) {
-				node.enableAccess(innerAccess);
+			if (innerAccess != 0 && node.isClass()) {
+				node.asClass().setInnerAccess(innerAccess);
 			}
 			if (enclosingClassName != null) {
 				ProtoClassNode clazz = jar.getProtoClass(enclosingClassName);

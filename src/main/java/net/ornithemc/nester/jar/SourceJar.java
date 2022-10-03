@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
 
@@ -38,8 +39,8 @@ public class SourceJar {
 
 	public SourceJar(Path src) {
 		this.src = src;
-		this.protoClasses = new LinkedHashMap<>();
-		this.classes = new LinkedHashMap<>();
+		this.protoClasses = new TreeMap<>(ClassNode::compareByName);
+		this.classes = new TreeMap<>(ClassNode::compareByName);
 		this.referencesTo = new LinkedHashMap<>();
 		this.referencesBy = new LinkedHashMap<>();
 

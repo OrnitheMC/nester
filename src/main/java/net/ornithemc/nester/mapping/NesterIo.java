@@ -43,6 +43,10 @@ public class NesterIo {
 				System.out.println("Invalid mapping \'" + line + "\': missing enclosing class name argument!");
 				continue;
 			}
+			if (innerName == null || innerName.isEmpty()) {
+				System.out.println("Invalid mapping \'" + line + "\': missing inner class name argument!");
+				continue;
+			}
 
 			boolean emptyName = (enclMethodName == null) || enclMethodName.isEmpty();
 			boolean emptyDesc = (enclMethodDesc == null) || enclMethodDesc.isEmpty();
@@ -52,8 +56,17 @@ public class NesterIo {
 				enclMethodDesc = null;
 			}
 
-			if (innerName != null && innerName.isEmpty()) {
-				innerName = null;
+			int anonIndex = -1;
+
+			try {
+				anonIndex = Integer.parseInt(innerName);
+
+				if (anonIndex < 1) {
+					System.out.println("Invalid mapping \'" + line + "\': invalid anonymous class index!");
+					continue;
+				}
+			} catch (NumberFormatException e) {
+
 			}
 
 			Integer access = null;
@@ -69,7 +82,7 @@ public class NesterIo {
 				continue;
 			}
 
-			NestType type = (innerName == null) ? NestType.ANONYMOUS : NestType.INNER;
+			NestType type = (anonIndex > 0) ? NestType.ANONYMOUS : NestType.INNER;
 			Nest nest = new Nest(type, className, enclClassName, enclMethodName, enclMethodDesc, innerName, access);
 
 			nests.add(nest);

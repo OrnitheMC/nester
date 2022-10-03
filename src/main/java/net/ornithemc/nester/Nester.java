@@ -20,15 +20,14 @@ import org.objectweb.asm.Opcodes;
 
 import net.fabricmc.tinyremapper.OutputConsumerPath;
 import net.fabricmc.tinyremapper.TinyRemapper;
+
 import net.ornithemc.nester.jar.SourceJar;
 import net.ornithemc.nester.jar.node.ClassNode;
-import net.ornithemc.nester.jar.node.FieldNode;
 import net.ornithemc.nester.jar.node.MethodNode;
 import net.ornithemc.nester.jar.node.Node;
 import net.ornithemc.nester.jar.node.proto.ProtoClassNode;
 import net.ornithemc.nester.mapping.Nest;
 import net.ornithemc.nester.mapping.NestType;
-import net.ornithemc.nester.mapping.NesterIo;
 import net.ornithemc.nester.mapping.Nests;
 
 public class Nester {
@@ -38,7 +37,7 @@ public class Nester {
 	 * write it to the given destination path.
 	 */
 	public static void fixJar(Path src, Path dst, Path mappings) {
-		if (mappings == null || !Files.isReadable(mappings) || !Files.isRegularFile(mappings)) {
+		if (!Files.isReadable(mappings) || !Files.isRegularFile(mappings)) {
 			throw new NesterException("invalid mappings path");
 		}
 
@@ -50,69 +49,31 @@ public class Nester {
 	 * write it to the given destination path.
 	 */
 	public static void fixJar(Path src, Path dst, Nests nests) {
-		if (src == null || !Files.isReadable(src) || !Files.isRegularFile(src)) {
+		if (!Files.isReadable(src) || !Files.isRegularFile(src)) {
 			throw new NesterException("invalid source path: " + src);
 		}
-		if (dst == null || (Files.exists(dst) && !Files.isWritable(dst))) {
+		if ((Files.exists(dst) && !Files.isWritable(dst))) {
 			throw new NesterException("invalid destination path: " + dst);
 		}
 		if (nests == null) {
 			throw new NesterException("no nests provided");
 		}
 
-		Nester nester = new Nester(src, dst, null, nests);
+		Nester nester = new Nester(src, dst, nests);
 
 		nester.applyMappings();
 		nester.fixNestedClasses();
 	}
 
-	/**
-	 * Fix the jar at the given source path using Nester's automatic nested
-	 * class detection and write it to the given destination path.
-	 */
-	public static void fixJar(Path src, Path dst) {
-		if (src == null || !Files.isReadable(src) || !Files.isRegularFile(src)) {
-			throw new NesterException("invalid source path: " + src);
-		}
-		if (dst == null || (Files.exists(dst) && !Files.isWritable(dst))) {
-			throw new NesterException("invalid destination path: " + dst);
-		}
-
-		Nester nester = new Nester(src, dst, null, Nests.empty());
-
-		nester.findNestedClasses();
-		nester.fixNestedClasses();
-	}
-
-	/**
-	 * Fix the jar at the given source path using Nester's automatic nested
-	 * class detection and write the mappings to the given destination path.
-	 */
-	public static void generateMappings(Path src, Path mappings) {
-		if (src == null || !Files.isReadable(src) || !Files.isRegularFile(src)) {
-			throw new NesterException("invalid source path: " + src);
-		}
-		if (mappings == null || (Files.exists(mappings) && !Files.isWritable(mappings))) {
-			throw new NesterException("invalid mappings path: " + mappings);
-		}
-
-		Nester nester = new Nester(src, null, mappings, Nests.empty());
-
-		nester.findNestedClasses();
-		nester.writeNestedClasses();
-	}
-
 	private final Path src;
 	private final Path dst;
-	private final Path mappings;
 
 	private final SourceJar jar;
 	private final Nests nests;
 
-	private Nester(Path src, Path dst, Path mappings, Nests nests) {
+	private Nester(Path src, Path dst, Nests nests) {
 		this.src = src;
 		this.dst = dst;
-		this.mappings = mappings;
 
 		this.jar = new SourceJar(this.src);
 		this.nests = nests;
@@ -133,219 +94,47 @@ public class Nester {
 			if (enclClass == null) {
 				continue;
 			}
-
-			MethodNode method = null;
-
-			if (nest.type == NestType.ANONYMOUS && nest.enclMethodName != null) {
-				method = enclClass.getMethod(nest.enclMethodName, nest.enclMethodDesc);
-
-				if (method == null) {
-					continue;
-				}
-			}
-			if (nest.type == NestType.INNER && nest.innerName == null) {
+			if (nest.innerName == null) {
 				continue;
 			}
 
-			clazz.setAccess(nest.access);
+			MethodNode method = null;
+
+			if (nest.type == NestType.ANONYMOUS) {
+				if (nest.enclMethodName != null) {
+					method = enclClass.getMethod(nest.enclMethodName, nest.enclMethodDesc);
+
+					if (method == null) {
+						continue;
+					}
+				}
+
+				int anonIndex = -1;
+
+				try {
+					anonIndex = Integer.parseInt(nest.innerName);
+				} catch (NumberFormatException e) {
+
+				}
+
+				if (anonIndex < 1) {
+					continue;
+				}
+			}
 
 			if (nest.type == NestType.ANONYMOUS) {
 				enclClass.addAnonymousClass(method, clazz);
 			} else {
 				enclClass.addInnerClass(clazz);
-				clazz.setSimpleName(nest.innerName);
 			}
+
+			clazz.setInnerName(nest.innerName);
+			clazz.setInnerAccess(nest.access);
 
 			applied++;
 		}
 
 		System.out.println("Applied " + applied + " nested class mappings...");
-	}
-
-	private void findNestedClasses() {
-		int found = 0;
-
-		for (ClassNode clazz : jar.getClasses()) {
-			if (!clazz.isNestable() || clazz.isNested()) {
-				continue;
-			}
-
-			Nest nest = tryNestClass(clazz, false);
-
-			if (nest != null) {
-				nests.add(nest);
-				found++;
-			}
-		}
-
-		System.out.println("Found " + found + " nested classes...");
-	}
-
-	private Nest tryNestClass(ClassNode clazz, boolean checkOnly) {
-		Nest nest = tryEnum(clazz, checkOnly);
-
-		if (nest == null) {
-			nest = tryAnonymous(clazz, checkOnly);
-		}
-		if (nest == null) {
-			nest = tryInner(clazz, checkOnly);
-		}
-
-		return nest;
-	}
-
-	private Nest tryEnum(ClassNode clazz, boolean checkOnly) {
-		if (!clazz.isEnum()) {
-			return null;
-		}
-
-		ClassNode superClass = clazz.getSuperClass();
-
-		if (superClass.getName().equals("java/lang/Enum")) {
-			return null;
-		}
-
-		return checkOrAddAnonymous(clazz, superClass, null, checkOnly);
-	}
-
-	private Nest tryAnonymous(ClassNode clazz, boolean checkOnly) {
-		// anonymous classes are always package private
-		if (!clazz.canBeAnonymous() || !clazz.isPackagePrivate()) {
-			return null;
-		}
-
-		Collection<MethodNode> declaredMethods = clazz.getDeclaredMethods();
-
-		// anonymous classes typically declare or override just 1 method
-		if (declaredMethods.size() != 1) {
-			return null;
-		}
-
-		Collection<MethodNode> constructors = clazz.getConstructors();
-
-		// anonymous classes have only 1 constructor
-		if (constructors.size() != 1) {
-			return null;
-		}
-
-		MethodNode constr = constructors.iterator().next();
-		Collection<Node> references = jar.getReferencesTo(constr);
-
-		// anonymous classes are only created once
-		if (references.size() != 1) {
-			return null;
-		}
-
-		Node refNode = references.iterator().next();
-
-		if (!refNode.isMethod()) {
-			return null;
-		}
-
-		MethodNode enclMethod = refNode.asMethod();
-		ClassNode enclClass = enclMethod.getParent();
-
-		return checkOrAddAnonymous(clazz, enclClass, enclMethod, checkOnly);
-	}
-
-	private Nest tryInner(ClassNode clazz, boolean checkOnly) {
-		// Inner classes usually have a synthetic field to store a
-		// reference to an instance of the enclosing class. This might
-		// be missing if the inner class is static.
-		// There might also be synthetic methods. These are used by
-		// the enclosing class to access members of the inner class.
-		// The enclosing class might also have synthetic methods, used
-		// by the inner class to access members of the enclosing class.
-		// However, these only exist if the inner class is not static,
-		// since static inner classes cannot access instance members of
-		// the enclosing class.
-		if (!clazz.canBeInner() || !clazz.hasSyntheticMembers()) {
-			return null;
-		}
-
-		// Inner classes have 1 synthetic field: a reference to
-		// an instance of the enclosing class.
-		if (clazz.hasSyntheticFields()) {
-			Collection<FieldNode> syntheticFields = clazz.getSyntheticFields();
-
-			// If there are more synthetic fields, this class is
-			// probably an anonymous class...
-			if (syntheticFields.size() > 1) {
-				return null;
-			}
-
-			FieldNode field = syntheticFields.iterator().next();
-			ClassNode type = field.getType();
-
-			if (jar.hasClass(type)) {
-				return checkOrAddInner(clazz, type, checkOnly);
-			}
-		}
-
-		if (checkOnly) {
-			return null;
-		}
-
-		// If the inner class does not reference the enclosing class instance
-		// at all, that synthetic field might be missing. This might be because
-		// the inner class is static, or because it was removed due to being
-		// unused. So then we turn to looking for synthetic methods.
-		Collection<ClassNode> references = new LinkedHashSet<>();
-		Collection<MethodNode> syntheticMethods = clazz.getSyntheticMethods();
-
-		for (MethodNode method : syntheticMethods) {
-			for (Node ref : jar.getReferencesTo(method)) {
-				if (ref.isClass()) {
-					references.add(ref.asClass());
-				} else {
-					Node parent = ref.getParent();
-
-					if (parent.isClass()) {
-						references.add(parent.asClass());
-					}
-				}
-			}
-		}
-
-		// Things can get pretty complex, e.g. when there are multiple layers of
-		// nested classes, or if one inner class is referenced from another. We
-		// will not account for all of these scenarios, and will instead look for
-		// the simple case where all references to the inner class come from the
-		// enclosing class.
-		if (references.size() != 1) {
-			return null;
-		}
-
-		ClassNode enclClass = references.iterator().next();
-
-		// Sometimes the enclosing class is mistaken for the inner class.
-		// Usually enclosing classes do not have synthetic fields, unless
-		// the nesting goes multiple levels deep...
-		Nest enclNest = tryNestClass(enclClass, true);
-
-		if (enclNest != null && clazz.getName().equals(enclNest.enclClassName)) {
-			return null;
-		}
-
-		return checkOrAddInner(clazz, enclClass, checkOnly);
-	}
-
-	private Nest checkOrAddAnonymous(ClassNode clazz, ClassNode enclClass, MethodNode enclMethod, boolean checkOnly) {
-		Node parent = (enclMethod == null) ? enclClass : enclMethod;
-
-		if (checkOnly ? parent.isValidChild(clazz) : enclClass.addAnonymousClass(enclMethod, clazz)) {
-			return Nest.anonymous(clazz, enclClass, enclMethod);
-		} else {
-			return null;
-		}
-	}
-
-	private Nest checkOrAddInner(ClassNode clazz, ClassNode enclClass, boolean checkOnly) {
-		if (checkOnly ? enclClass.isValidChild(clazz) : enclClass.addInnerClass(clazz)) {
-			return Nest.inner(clazz, enclClass);
-		} else {
-			return null;
-		}
 	}
 
 	private void fixNestedClasses() {
@@ -437,7 +226,7 @@ public class Nester {
 							}
 
 							private void visitInnerClass(Nest nest) {
-								visitInnerClass(nest.className, nest.innerName == null ? null : nest.enclClassName, nest.innerName, nest.access);
+								visitInnerClass(nest.className, nest.isAnonymous() ? null : nest.enclClassName, nest.isAnonymous() ? null : nest.innerName, nest.access);
 							}
 						};
 
@@ -535,11 +324,5 @@ public class Nester {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-	}
-
-	private void writeNestedClasses() {
-		NesterIo.write(nests, mappings);
-		System.out.println("Written mappings to file...");
-		System.out.println("Done!");
 	}
 }
