@@ -106,12 +106,9 @@ public class NesterIo {
 			String innerName = nest.innerName;
 			String access = String.valueOf(nest.access);
 
-			if (nest.type == NestType.INNER || enclMethodName == null || enclMethodDesc == null) {
+			if (enclMethodName == null || enclMethodDesc == null) {
 				enclMethodName = "";
 				enclMethodDesc = "";
-			}
-			if (nest.type == NestType.ANONYMOUS || innerName == null) {
-				innerName = "";
 			}
 
 			bw.write(className);
