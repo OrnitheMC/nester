@@ -3,7 +3,6 @@ package net.ornithemc.nester.jar.node;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -24,10 +23,8 @@ public class ClassNode extends Node {
 	private final Map<String, MethodNode> syntheticMethods;
 	private final Map<String, MethodNode> constructors;
 
-	private final Map<String, ClassNode> innerClasses;
+	private final Set<ClassNode> innerClasses;
 	private final Set<ClassNode> anonymousClasses;
-
-	private int firstAnonIndex;
 
 	private boolean hasSyntheticFields;
 	private boolean hasSyntheticMethods;
@@ -35,7 +32,9 @@ public class ClassNode extends Node {
 
 	private boolean canBeAnonymous;
 
-	private String simpleName; // used by nested classes
+	// used by nested classes
+	private String innerName;
+	private int innerAccess;
 
 	public ClassNode(ProtoClassNode proto, ClassNode superClass, ClassNode[] interfaces) {
 		super(proto);
@@ -50,10 +49,8 @@ public class ClassNode extends Node {
 		this.syntheticMethods = new HashMap<>();
 		this.constructors = new HashMap<>();
 
-		this.innerClasses = new LinkedHashMap<>();
+		this.innerClasses = new TreeSet<>(ClassNode::compareByName);
 		this.anonymousClasses = new TreeSet<>(ClassNode::compareByName);
-
-		this.firstAnonIndex = 1;
 
 		this.canBeAnonymous = true;
 
@@ -63,9 +60,10 @@ public class ClassNode extends Node {
 	}
 
 	public static int compareByName(ClassNode c1, ClassNode c2) {
-		String name1 = c1.proto().getName();
-		String name2 = c2.proto().getName();
+		return compareByName(c1.proto().getName(), c2.proto().getName());
+	}
 
+	public static int compareByName(String name1, String name2) {
 		int l1 = name1.length();
 		int l2 = name2.length();
 
@@ -108,22 +106,8 @@ public class ClassNode extends Node {
 				ClassNode clazz = node.asClass();
 				ProtoClassNode protoClass = clazz.proto();
 
-				String name = protoClass.getName();
-				int i = name.lastIndexOf('$');
-
-				if (i > 0) {
-					String innerName = name.substring(i + 1);
-
-					try {
-						int index = Integer.valueOf(innerName);
-
-						if (index >= firstAnonIndex) {
-							firstAnonIndex = index + 1;
-						}
-					} catch (NumberFormatException e) {
-
-					}
-				}
+				clazz.innerName = protoClass.getName();
+				clazz.innerAccess = protoClass.getAccess();
 			}
 			if (node.isField()) {
 				FieldNode field = node.asField();
@@ -156,8 +140,6 @@ public class ClassNode extends Node {
 				}
 			}
 
-			fixAnonymousClassNames();
-
 			if (node.isStatic() && (!node.isField() || !node.isFinal())) {
 				hasStaticMembers = true;
 			}
@@ -181,8 +163,7 @@ public class ClassNode extends Node {
 	@Override
 	protected boolean setNodeName(String name) {
 		if (super.setNodeName(name)) {
-			fixAnonymousClassNames();
-			fixInnerClassNames();
+			fixNestedClassNames();
 
 			return true;
 		}
@@ -190,25 +171,14 @@ public class ClassNode extends Node {
 		return false;
 	}
 
-	private void fixAnonymousClassNames() {
-		String name = getName();
-		int i = firstAnonIndex;
+	private void fixNestedClassNames() {
+		String base = getName() + "$";
 
-		for (ClassNode clazz : anonymousClasses) {
-			clazz.setSimpleName(null);
-			String newName = name + "$" + i++;
-			clazz.setName(newName);
+		for (ClassNode clazz : innerClasses) {
+			clazz.setName(base + clazz.innerName);
 		}
-	}
-
-	private void fixInnerClassNames() {
-		String name = getName();
-
-		for (ClassNode clazz : innerClasses.values()) {
-			String simpleName = getSimpleName(clazz);
-			clazz.setSimpleName(simpleName);
-			String newName = name + "$" + clazz.simpleName;
-			clazz.setName(newName);
+		for (ClassNode clazz : anonymousClasses) {
+			clazz.setName(base + clazz.innerName);
 		}
 	}
 
@@ -218,6 +188,21 @@ public class ClassNode extends Node {
 
 	public boolean isNested() {
 		return hasParent();
+	}
+
+	public ClassNode getEnclosingClass() {
+		Node p = getParent();
+
+		if (p != null) {
+			if (p.isClass()) {
+				return p.asClass();
+			}
+			if (p.isMethod()) {
+				return p.getParent().asClass();
+			}
+		}
+
+		return null;
 	}
 
 	public ClassNode getSuperClass() {
@@ -298,21 +283,18 @@ public class ClassNode extends Node {
 		if (!clazz.setParent(this)) {
 			return false;
 		}
+		if (innerClasses.contains(clazz)) {
+			return false;
+		}
 
-		innerClasses.put(simpleName, clazz);
-
-		fixAnonymousClassNames();
-		fixInnerClassNames();
+		innerClasses.add(clazz);
+		fixNestedClassNames();
 
 		return true;
 	}
 
-	private String getSimpleName(ClassNode clazz) {
-		return clazz.proto().getName(); // TODO: generate unique (within this class) simple names
-	}
-
 	public Collection<ClassNode> getInnerClasses() {
-		return Collections.unmodifiableCollection(innerClasses.values());
+		return Collections.unmodifiableCollection(innerClasses);
 	}
 
 	public boolean addAnonymousClass(MethodNode enclMethod, ClassNode clazz) {
@@ -321,11 +303,12 @@ public class ClassNode extends Node {
 		if (!clazz.setParent(parent)) {
 			return false;
 		}
+		if (anonymousClasses.contains(clazz)) {
+			return false;
+		}
 
 		anonymousClasses.add(clazz);
-
-		fixAnonymousClassNames();
-		fixInnerClassNames();
+		fixNestedClassNames();
 
 		return true;
 	}
@@ -334,17 +317,41 @@ public class ClassNode extends Node {
 		return Collections.unmodifiableCollection(anonymousClasses);
 	}
 
-	public String getSimpleName() {
-		return simpleName;
+	public String getInnerName() {
+		return innerName;
 	}
 
-	public void setSimpleName(String name) {
-		if (isValidSimpleName(name)) {
-			simpleName = name;
+	public void setInnerName(String name) {
+		if (isValidInnerName(name)) {
+			innerName = name;
+
+			if (isNested()) {
+				getEnclosingClass().fixNestedClassNames();
+			}
 		}
 	}
 
-	private boolean isValidSimpleName(String name) {
-		return name == null || !name.contains("$"); // TODO: check against keywords and invalid characters
+	private boolean isValidInnerName(String name) {
+		return isNested() ? !name.contains("$") : name == null; // TODO: check against keywords and invalid characters
+	}
+
+	public int getInnerAccess() {
+		return innerAccess;
+	}
+
+	public void setInnerAccess(int access) {
+		this.innerAccess = access;
+	}
+
+	public void enableInnerAccess(int... opcodes) {
+		for (int opcode : opcodes) {
+			setInnerAccess(innerAccess | opcode);
+		}
+	}
+
+	public void disableInnerAccess(int... opcodes) {
+		for (int opcode : opcodes) {
+			setInnerAccess(innerAccess & ~opcode);
+		}
 	}
 }
