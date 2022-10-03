@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.Map;
 
 public class Nests {
@@ -33,29 +32,21 @@ public class Nests {
 		return new Nests();
 	}
 
-	private final Collection<Nest> all;
-	private final Map<String, Collection<Nest>> byClass;
+	private final Map<String, Nest> all;
 
 	private Nests() {
-		this.all = new LinkedHashSet<>();
-		this.byClass = new LinkedHashMap<>();
+		this.all = new LinkedHashMap<>();
 	}
 
 	public Collection<Nest> get() {
-		return all;
+		return all.values();
 	}
 
-	public Collection<Nest> get(String className) {
-		return byClass.get(className);
+	public Nest get(String className) {
+		return all.get(className);
 	}
 
 	public void add(Nest nest) {
-		all.add(nest);
-		add(nest, nest.className);
-		add(nest, nest.enclClassName);
-	}
-
-	private void add(Nest nest, String className) {
-		byClass.computeIfAbsent(className, key -> new LinkedHashSet<>()).add(nest);
+		all.put(nest.className, nest);
 	}
 }

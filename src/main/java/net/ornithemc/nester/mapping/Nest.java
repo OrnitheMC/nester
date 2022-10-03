@@ -27,6 +27,18 @@ public class Nest {
 		this.access = access;
 	}
 
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		}
+		if (!(obj instanceof Nest)) {
+			return false;
+		}
+
+		return className.equals(((Nest)obj).className);
+	}
+
 	static Nest of(NestType type, ClassNode clazz, ClassNode enclClass, MethodNode enclMethod, int access) {
 		ProtoClassNode protoClass = clazz.proto();
 		ProtoClassNode protoEnclClass = enclClass.proto();
