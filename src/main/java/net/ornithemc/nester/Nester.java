@@ -100,15 +100,15 @@ public class Nester {
 
 			MethodNode method = null;
 
-			if (nest.type == NestType.ANONYMOUS) {
-				if (nest.enclMethodName != null) {
-					method = enclClass.getMethod(nest.enclMethodName, nest.enclMethodDesc);
+			if (nest.enclMethodName != null) {
+				method = enclClass.getMethod(nest.enclMethodName, nest.enclMethodDesc);
 
-					if (method == null) {
-						continue;
-					}
+				if (method == null) {
+					continue;
 				}
+			}
 
+			if (nest.type == NestType.ANONYMOUS) {
 				int anonIndex = -1;
 
 				try {
@@ -125,7 +125,7 @@ public class Nester {
 			if (nest.type == NestType.ANONYMOUS) {
 				enclClass.addAnonymousClass(method, clazz);
 			} else {
-				enclClass.addInnerClass(clazz);
+				enclClass.addInnerClass(method, clazz);
 			}
 
 			clazz.setInnerName(nest.innerName);
