@@ -279,8 +279,10 @@ public class ClassNode extends Node {
 		return !isStatic() || !hasStaticMembers;
 	}
 
-	public boolean addInnerClass(ClassNode clazz) {
-		if (!clazz.setParent(this)) {
+	public boolean addInnerClass(MethodNode enclMethod, ClassNode clazz) {
+		Node parent = (enclMethod == null) ? this : enclMethod;
+
+		if (!clazz.setParent(parent)) {
 			return false;
 		}
 		if (innerClasses.contains(clazz)) {
