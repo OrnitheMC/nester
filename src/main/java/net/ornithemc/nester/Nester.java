@@ -226,7 +226,22 @@ public class Nester {
 							}
 
 							private void visitInnerClass(Nest nest) {
-								visitInnerClass(nest.className, nest.isAnonymous() ? null : nest.enclClassName, nest.isAnonymous() ? null : nest.innerName, nest.access);
+								visitInnerClass(nest.className, nest.isAnonymous() ? null : nest.enclClassName, nest.isAnonymous() ? null : stripLocalClassPrefix(nest.innerName), nest.access);
+							}
+
+							private String stripLocalClassPrefix(String innerName) {
+								int nameStart = 0;
+
+								// local class names start with a number prefix
+								while (nameStart < innerName.length() && Character.isDigit(innerName.charAt(nameStart))) {
+									nameStart++;
+								}
+								// if entire inner name is a number, this class is anonymous, not local
+								if (nameStart == innerName.length()) {
+									nameStart = 0;
+								}
+
+								return innerName.substring(nameStart);
 							}
 						};
 

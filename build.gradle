@@ -5,7 +5,7 @@ plugins {
 }
 
 group 'net.ornithemc'
-version '0.3.2'
+version '0.3.3'
 
 def ENV = System.getenv()
 
