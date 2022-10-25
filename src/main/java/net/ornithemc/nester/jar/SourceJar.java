@@ -34,13 +34,17 @@ public class SourceJar {
 	private final Path src;
 	private final Map<String, ProtoClassNode> protoClasses;
 	private final Map<String, ClassNode> classes;
+	private final Map<String, ClassNode> newClasses;
 	private final Map<Node, Collection<Node>> referencesTo;
 	private final Map<Node, Collection<Node>> referencesBy;
+
+	private int classVersion = -1;
 
 	public SourceJar(Path src) {
 		this.src = src;
 		this.protoClasses = new TreeMap<>(ClassNode::compareByName);
 		this.classes = new TreeMap<>(ClassNode::compareByName);
+		this.newClasses = new TreeMap<>(ClassNode::compareByName);
 		this.referencesTo = new LinkedHashMap<>();
 		this.referencesBy = new LinkedHashMap<>();
 
@@ -63,6 +67,10 @@ public class SourceJar {
 						@Override
 						public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
 							if (clazz == null) {
+								if (classVersion < 0 || version < classVersion) {
+									classVersion = version;
+								}
+
 								className = name;
 								clazz = new ProtoClassNode(SourceJar.this, version, access, name, signature, superName, interfaces);
 
@@ -261,8 +269,46 @@ public class SourceJar {
 	 * Check if the given class is contained in the jar or if it is
 	 * merely a reference to a class in a library or the JRE.
 	 */
+	public boolean hasClass(String name) {
+		return classes.containsKey(name);
+	}
+
+	/**
+	 * Check if the given class is contained in the jar or if it is
+	 * merely a reference to a class in a library or the JRE.
+	 */
 	public boolean hasClass(ClassNode clazz) {
-		return classes.containsKey(clazz.getName());
+		return hasClass(clazz.getName());
+	}
+
+	public Collection<ClassNode> getNewClasses() {
+		return Collections.unmodifiableCollection(newClasses.values());
+	}
+
+	public ClassNode newClass(String name) {
+		if (classes.containsKey(name)) {
+			throw new IllegalStateException("cannot generate class " + name + " as it already exists!");
+		}
+		if (newClasses.containsKey(name)) {
+			return newClasses.get(name);
+		}
+
+		ProtoClassNode protoClass = new ProtoClassNode(
+			this,
+			classVersion,
+			Opcodes.ACC_PUBLIC,
+			name,
+			null,
+			"java/lang/Object",
+			null
+		);
+		ClassNode clazz = protoClass.node();
+
+		protoClasses.put(name, clazz.proto());
+		classes.put(name, clazz);
+		newClasses.put(name, clazz);
+
+		return clazz;
 	}
 
 	/**
