@@ -98,7 +98,7 @@ public class NesterIo {
 	}
 
 	public static void write(Nests nests, BufferedWriter bw) throws IOException {
-		for (Nest nest : nests.get()) {
+		for (Nest nest : nests) {
 			String className = nest.className;
 			String enclClassName = nest.enclClassName;
 			String enclMethodName = nest.enclMethodName;

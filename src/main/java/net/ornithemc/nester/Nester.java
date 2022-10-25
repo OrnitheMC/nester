@@ -82,7 +82,7 @@ public class Nester {
 	private void applyMappings() {
 		int applied = 0;
 
-		for (Nest nest : nests.get()) {
+		for (Nest nest : nests) {
 			ClassNode clazz = jar.getClass(nest.className);
 
 			if (clazz == null) {
@@ -92,8 +92,9 @@ public class Nester {
 			ClassNode enclClass = jar.getClass(nest.enclClassName);
 
 			if (enclClass == null) {
-				continue;
+				enclClass = jar.newClass(nest.enclClassName);
 			}
+
 			if (nest.innerName == null) {
 				continue;
 			}
@@ -160,90 +161,34 @@ public class Nester {
 
 	private void addAttributes(Path src, Path dst) {
 		try (JarOutputStream jos = new JarOutputStream(new FileOutputStream(dst.toFile()))) {
+			for (ClassNode newClass : jar.getNewClasses()) {
+				ProtoClassNode protoClass = newClass.proto();
+				JarEntry entry = new JarEntry(protoClass.getName() + ".class");
+				ClassWriter writer = new ClassWriter(0);
+				ClassVisitor visitor = new NestedClassAttributeClassVisitor(Opcodes.ASM9, writer);
+
+				visitor.visit(
+					protoClass.getVersion(),
+					protoClass.getAccess(),
+					protoClass.getName(),
+					protoClass.getSignature(),
+					protoClass.getSuperName(),
+					protoClass.getInterfaces()
+				);
+				visitor.visitEnd();
+
+				jos.putNextEntry(entry);
+				jos.write(writer.toByteArray());
+				jos.flush();
+				jos.closeEntry();
+			}
+
 			try (JarInputStream jis = new JarInputStream(new FileInputStream(src.toFile()))) {
 				for (JarEntry entry; (entry = jis.getNextJarEntry()) != null;) {
 					if (entry.getName().endsWith(".class")) {
 						ClassReader reader = new ClassReader(jis);
 						ClassWriter writer = new ClassWriter(reader, 0);
-						ClassVisitor visitor = new ClassVisitor(Opcodes.ASM9, writer) {
-
-							private String name;
-							private Collection<Nest> nests;
-
-							@Override
-							public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
-								this.name = name;
-								this.nests = new LinkedHashSet<>();
-
-								ClassNode c = jar.getClass(this.name);
-
-								if (c != null) {
-									prepareAttribute(c);
-
-									for (ClassNode cc : c.getInnerClasses()) {
-										prepareAttribute(cc);
-									}
-									for (ClassNode cc : c.getAnonymousClasses()) {
-										prepareAttribute(cc);
-									}
-									for (Node n : jar.getReferencesBy(c)) {
-										if (n.isClass()) {
-											prepareAttribute(n.asClass());
-										}
-									}
-								}
-
-								super.visit(version, access, name, signature, superName, interfaces);
-							}
-
-							@Override
-							public void visitEnd() {
-								for (Nest nest : nests) {
-									addAttribute(nest);
-								}
-
-								super.visitEnd();
-							}
-
-							private void prepareAttribute(ClassNode c) {
-								Nest nest = Nester.this.nests.get(c.proto().getName());
-
-								if (nest != null) {
-									nests.add(nest);
-								}
-							}
-
-							private void addAttribute(Nest nest) {
-								if (nest.className.equals(name)) {
-									visitOuterClass(nest);
-								}
-
-								visitInnerClass(nest);
-							}
-
-							private void visitOuterClass(Nest nest) {
-								visitOuterClass(nest.enclClassName, nest.enclMethodName, nest.enclMethodDesc);
-							}
-
-							private void visitInnerClass(Nest nest) {
-								visitInnerClass(nest.className, nest.isAnonymous() ? null : nest.enclClassName, nest.isAnonymous() ? null : stripLocalClassPrefix(nest.innerName), nest.access);
-							}
-
-							private String stripLocalClassPrefix(String innerName) {
-								int nameStart = 0;
-
-								// local class names start with a number prefix
-								while (nameStart < innerName.length() && Character.isDigit(innerName.charAt(nameStart))) {
-									nameStart++;
-								}
-								// if entire inner name is a number, this class is anonymous, not local
-								if (nameStart == innerName.length()) {
-									nameStart = 0;
-								}
-
-								return innerName.substring(nameStart);
-							}
-						};
+						ClassVisitor visitor = new NestedClassAttributeClassVisitor(Opcodes.ASM9, writer);
 
 						reader.accept(visitor, 0);
 
@@ -338,6 +283,94 @@ public class Nester {
 			jos.finish();
 		} catch (IOException e) {
 			e.printStackTrace();
+		}
+	}
+
+	private class NestedClassAttributeClassVisitor extends ClassVisitor {
+
+		private String name;
+		private Collection<Nest> nests;
+
+		private NestedClassAttributeClassVisitor(int api) {
+			super(api);
+		}
+
+		private NestedClassAttributeClassVisitor(int api, ClassVisitor classVisitor) {
+			super(api, classVisitor);
+		}
+
+		@Override
+		public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+			this.name = name;
+			this.nests = new LinkedHashSet<>();
+
+			ClassNode c = jar.getClass(this.name);
+
+			if (c != null) {
+				prepareAttribute(c);
+
+				for (ClassNode cc : c.getInnerClasses()) {
+					prepareAttribute(cc);
+				}
+				for (ClassNode cc : c.getAnonymousClasses()) {
+					prepareAttribute(cc);
+				}
+				for (Node n : jar.getReferencesBy(c)) {
+					if (n.isClass()) {
+						prepareAttribute(n.asClass());
+					}
+				}
+			}
+
+			super.visit(version, access, name, signature, superName, interfaces);
+		}
+
+		@Override
+		public void visitEnd() {
+			for (Nest nest : nests) {
+				addAttribute(nest);
+			}
+
+			super.visitEnd();
+		}
+
+		private void prepareAttribute(ClassNode c) {
+			Nest nest = Nester.this.nests.get(c.proto().getName());
+
+			if (nest != null) {
+				nests.add(nest);
+			}
+		}
+
+		private void addAttribute(Nest nest) {
+			if (nest.className.equals(name)) {
+				visitOuterClass(nest);
+			}
+
+			visitInnerClass(nest);
+		}
+
+		private void visitOuterClass(Nest nest) {
+			visitOuterClass(nest.enclClassName, nest.enclMethodName, nest.enclMethodDesc);
+		}
+
+		private void visitInnerClass(Nest nest) {
+			visitInnerClass(nest.className, nest.isAnonymous() ? null : nest.enclClassName, nest.isAnonymous() ? null : stripLocalClassPrefix(nest.innerName), nest.access);
+		}
+
+		private String stripLocalClassPrefix(String innerName) {
+			int nameStart = 0;
+
+			// local class names start with a number prefix
+			while (nameStart < innerName.length() && Character.isDigit(innerName.charAt(nameStart))) {
+				nameStart++;
+			}
+			// if entire inner name is a number, this class is anonymous, not local
+			if (nameStart == innerName.length()) {
+				nameStart = 0;
+			}
+
+			return innerName.substring(nameStart);
 		}
 	}
 }

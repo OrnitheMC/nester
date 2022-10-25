@@ -4,11 +4,11 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Collection;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public class Nests {
+public class Nests implements Iterable<Nest> {
 
 	public static Nests of(Path mappings) {
 		Nests nests;
@@ -38,8 +38,9 @@ public class Nests {
 		this.all = new LinkedHashMap<>();
 	}
 
-	public Collection<Nest> get() {
-		return all.values();
+	@Override
+	public Iterator<Nest> iterator() {
+		return all.values().iterator();
 	}
 
 	public Nest get(String className) {
