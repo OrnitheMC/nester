@@ -50,4 +50,8 @@ public class Nests implements Iterable<Nest> {
 	public void add(Nest nest) {
 		all.put(nest.className, nest);
 	}
+
+	public boolean isEmpty() {
+		return all.isEmpty();
+	}
 }
