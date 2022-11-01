@@ -351,7 +351,9 @@ public class Nester {
 		}
 
 		private void visitOuterClass(Nest nest) {
-			visitOuterClass(nest.enclClassName, nest.enclMethodName, nest.enclMethodDesc);
+			if (nest.isAnonymous()) {
+				visitOuterClass(nest.enclClassName, nest.enclMethodName, nest.enclMethodDesc);
+			}
 		}
 
 		private void visitInnerClass(Nest nest) {
