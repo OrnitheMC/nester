@@ -1,4 +1,4 @@
-package net.ornithemc.nester.mapping;
+package net.ornithemc.nester.nest;
 
 public class Nest {
 
@@ -40,5 +40,9 @@ public class Nest {
 
 	public boolean isInner() {
 		return type == NestType.INNER;
+	}
+
+	public boolean isLocal() {
+		return type == NestType.LOCAL;
 	}
 }

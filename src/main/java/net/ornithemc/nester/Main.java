@@ -17,8 +17,8 @@ public class Main {
 
 		try {
 			switch (command) {
-			case "--fixJar":
-				tryFixJar(args);
+			case "--nestJar":
+				nestJar(args);
 				break;
 			default:
 				System.out.println("Unknown command: " + command);
@@ -38,23 +38,19 @@ public class Main {
 
 	private static void printUsage() {
 		System.out.println("Correct usage:");
-		System.out.println("  --fixJar <source jar> <destination jar> <mappings file>");
+		System.out.println("  --nestJar <source jar> <destination jar> <nests file>");
 	}
 
-	private static void tryFixJar(String[] args) {
+	private static void nestJar(String[] args) {
 		if (args.length == 4) {
-			fixJar(args);
+			Path src = Paths.get(args[1]);
+			Path dst = Paths.get(args[2]);
+			Path nests = Paths.get(args[3]);
+
+			Nester.nestJar(src, dst, nests);
 		} else {
 			System.out.println("Incorrect number of arguments! Expected 4, got " + args.length + "...");
 			printUsage();
 		}
-	}
-
-	private static void fixJar(String[] args) {
-		Path src = Paths.get(args[1]);
-		Path dst = Paths.get(args[2]);
-		Path mappings = Paths.get(args[3]);
-
-		Nester.fixJar(src, dst, mappings);
 	}
 }

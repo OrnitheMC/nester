@@ -1,4 +1,4 @@
-package net.ornithemc.nester.mapping;
+package net.ornithemc.nester.nest;
 
 import java.io.BufferedReader;
 import java.io.FileReader;

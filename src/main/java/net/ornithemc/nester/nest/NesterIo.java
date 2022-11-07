@@ -1,4 +1,4 @@
-package net.ornithemc.nester.mapping;
+package net.ornithemc.nester.nest;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 
 public class NesterIo {
+
+	private static final String TAB = "\t";
 
 	public static void read(Nests nests, Path mappings) {
 		try (BufferedReader br = new BufferedReader(new FileReader(mappings.toFile()))) {
@@ -21,7 +23,7 @@ public class NesterIo {
 		String line;
 
 		while ((line = br.readLine()) != null) {
-			String[] args = line.split("\\s");
+			String[] args = line.split(TAB);
 
 			if (args.length != 6) {
 				System.out.println("Incorrect number of arguments for mapping \'" + line + "\' - expected 6, got " + args.length + "...");
@@ -56,17 +58,10 @@ public class NesterIo {
 				enclMethodDesc = null;
 			}
 
-			int anonIndex = -1;
+			int idx = 0;
 
-			try {
-				anonIndex = Integer.parseInt(innerName);
-
-				if (anonIndex < 1) {
-					System.out.println("Invalid mapping \'" + line + "\': invalid anonymous class index!");
-					continue;
-				}
-			} catch (NumberFormatException e) {
-
+			while (idx < innerName.length() && Character.isDigit(innerName.charAt(idx))) {
+				idx++;
 			}
 
 			int access = -1;
@@ -82,7 +77,7 @@ public class NesterIo {
 
 			}
 
-			NestType type = (anonIndex > 0) ? NestType.ANONYMOUS : NestType.INNER;
+			NestType type = (idx == innerName.length()) ? NestType.ANONYMOUS : ((idx == 0) ? NestType.INNER : NestType.LOCAL);
 			Nest nest = new Nest(type, className, enclClassName, enclMethodName, enclMethodDesc, innerName, access);
 
 			nests.add(nest);
@@ -104,7 +99,7 @@ public class NesterIo {
 			String enclMethodName = nest.enclMethodName;
 			String enclMethodDesc = nest.enclMethodDesc;
 			String innerName = nest.innerName;
-			String access = String.valueOf(nest.access);
+			String access = Integer.toString(nest.access);
 
 			if (enclMethodName == null || enclMethodDesc == null) {
 				enclMethodName = "";
@@ -112,15 +107,15 @@ public class NesterIo {
 			}
 
 			bw.write(className);
-			bw.write("\t");
+			bw.write(TAB);
 			bw.write(enclClassName);
-			bw.write("\t");
+			bw.write(TAB);
 			bw.write(enclMethodName);
-			bw.write("\t");
+			bw.write(TAB);
 			bw.write(enclMethodDesc);
-			bw.write("\t");
+			bw.write(TAB);
 			bw.write(innerName);
-			bw.write("\t");
+			bw.write(TAB);
 			bw.write(access);
 
 			bw.newLine();

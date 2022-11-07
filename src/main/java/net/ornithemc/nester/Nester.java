@@ -7,7 +7,10 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.LinkedHashSet;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarInputStream;
@@ -17,38 +20,55 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.MethodNode;
 
 import net.fabricmc.tinyremapper.OutputConsumerPath;
 import net.fabricmc.tinyremapper.TinyRemapper;
 
+import net.ornithemc.nester.jar.ClassNest;
 import net.ornithemc.nester.jar.SourceJar;
-import net.ornithemc.nester.jar.node.ClassNode;
-import net.ornithemc.nester.jar.node.MethodNode;
-import net.ornithemc.nester.jar.node.Node;
-import net.ornithemc.nester.jar.node.proto.ProtoClassNode;
-import net.ornithemc.nester.mapping.Nest;
-import net.ornithemc.nester.mapping.NestType;
-import net.ornithemc.nester.mapping.Nests;
+import net.ornithemc.nester.nest.Nest;
+import net.ornithemc.nester.nest.NestType;
+import net.ornithemc.nester.nest.Nests;
 
 public class Nester {
 
-	/**
-	 * Fix the jar at the given source path with the given mappings and
-	 * write it to the given destination path.
-	 */
-	public static void fixJar(Path src, Path dst, Path mappings) {
-		if (!Files.isReadable(mappings) || !Files.isRegularFile(mappings)) {
-			throw new NesterException("invalid mappings path");
-		}
+	public static class Options {
 
-		fixJar(src, dst, Nests.of(mappings));
+		private boolean silent = false;
+
+		public Options silent(boolean silent) {
+			this.silent = silent;
+			return this;
+		}
 	}
 
 	/**
-	 * Fix the jar at the given source path with the given mappings and
+	 * Apply the given nests to the jar at the given source path and
 	 * write it to the given destination path.
 	 */
-	public static void fixJar(Path src, Path dst, Nests nests) {
+	public static void nestJar(Path src, Path dst, Path nests) {
+		nestJar(new Options(), src, dst, Nests.of(nests));
+	}
+
+	/**
+	 * Apply the given nests to the jar at the given source path and
+	 * write it to the given destination path.
+	 */
+	public static void nestJar(Options options, Path src, Path dst, Path nests) {
+		if (!Files.isReadable(nests) || !Files.isRegularFile(nests)) {
+			throw new NesterException("invalid nests path");
+		}
+
+		nestJar(options, src, dst, Nests.of(nests));
+	}
+
+	/**
+	 * Apply the given nests to the jar at the given source path and
+	 * write it to the given destination path.
+	 */
+	public static void nestJar(Options options, Path src, Path dst, Nests nests) {
 		if (!Files.isReadable(src) || !Files.isRegularFile(src)) {
 			throw new NesterException("invalid source path: " + src);
 		}
@@ -59,121 +79,151 @@ public class Nester {
 			throw new NesterException("no nests provided");
 		}
 
-		Nester nester = new Nester(src, dst, nests);
+		Nester nester = new Nester(options, src, dst);
 
-		nester.applyMappings();
-		nester.fixNestedClasses();
+		nester.accept(nests);
+		nester.applyNests();
 	}
+
+	private final Options options;
 
 	private final Path src;
 	private final Path dst;
-
 	private final SourceJar jar;
-	private final Nests nests;
 
-	private Nester(Path src, Path dst, Nests nests) {
+	private final Map<ClassNode, Map<ClassNode, ClassNest>> nests;
+	private final Map<String, String> mappings;
+
+	private Nester(Options options, Path src, Path dst) {
+		this.options = options;
+
 		this.src = src;
 		this.dst = dst;
-
 		this.jar = new SourceJar(this.src);
-		this.nests = nests;
+
+		this.nests = new LinkedHashMap<>();
+		this.mappings = new HashMap<>();
 	}
 
-	private void applyMappings() {
-		int applied = 0;
+	private void accept(Nests nests) {
+		int c = 0;
 
 		for (Nest nest : nests) {
+			NestType type = nest.type;
+
 			ClassNode clazz = jar.getClass(nest.className);
-
-			if (clazz == null) {
-				continue;
-			}
-
 			ClassNode enclClass = jar.getClass(nest.enclClassName);
+			MethodNode enclMethod = jar.getMethod(nest.enclClassName, nest.enclMethodName, nest.enclMethodDesc);
 
-			if (enclClass == null) {
+			if (clazz != null && enclClass == null) {
 				enclClass = jar.newClass(nest.enclClassName);
 			}
 
-			if (nest.innerName == null) {
-				continue;
+			String innerName = nest.innerName;
+			int innerAccess = nest.access;
+
+			if (accept(type, clazz, enclClass, enclMethod, innerName, innerAccess)) {
+				c++;
 			}
-
-			MethodNode method = null;
-
-			if (nest.enclMethodName != null) {
-				method = enclClass.getMethod(nest.enclMethodName, nest.enclMethodDesc);
-
-				if (method == null) {
-					continue;
-				}
-			}
-
-			if (nest.type == NestType.ANONYMOUS) {
-				int anonIndex = -1;
-
-				try {
-					anonIndex = Integer.parseInt(nest.innerName);
-				} catch (NumberFormatException e) {
-
-				}
-
-				if (anonIndex < 1) {
-					continue;
-				}
-			}
-
-			if (nest.type == NestType.ANONYMOUS) {
-				enclClass.addAnonymousClass(method, clazz);
-			} else {
-				enclClass.addInnerClass(method, clazz);
-			}
-
-			clazz.setInnerName(nest.innerName);
-			clazz.setInnerAccess(nest.access);
-
-			applied++;
 		}
 
-		System.out.println("Applied " + applied + " nested class mappings...");
+		if (!options.silent) {
+			System.out.println("Prepared " + c + " nests...");
+		}
 	}
 
-	private void fixNestedClasses() {
+	private boolean accept(NestType type, ClassNode clazz, ClassNode enclClass, MethodNode enclMethod, String innerName, int innerAccess) {
+		if (clazz == null || enclClass == null) {
+			return false;
+		}
+		if (innerName == null || innerAccess < 0) {
+			return false;
+		}
+		// anonymous class may have an enclosing method, they may not
+		// inner classes NEVER have an enclosing method
+		// local classes ALWAYS have an enclosing method
+		if (type == NestType.INNER && enclMethod != null) {
+			return false;
+		}
+		if (type == NestType.LOCAL && enclMethod == null) {
+			return false;
+		}
+		// for anonymous classes, the inner name is typically
+		// a number: their anonymous class index
+		if (type == NestType.ANONYMOUS) {
+			int anonIndex = -1;
+
+			try {
+				anonIndex = Integer.parseInt(innerName);
+			} catch (NumberFormatException e) {
+
+			}
+
+			if (anonIndex < 1) {
+				return false;
+			}
+		}
+
+		// only accept each class once
+		// after all, one class cannot be nested into multiple places
+		if (nests.containsKey(clazz)) {
+			Map<ClassNode, ClassNest> referencedNests = nests.get(clazz);
+
+			if (referencedNests.containsKey(clazz)) {
+				return false;
+			}
+		}
+
+		ClassNest nest = new ClassNest(type, clazz, enclClass, enclMethod, innerName, innerAccess);
+
+		addNestReference(clazz, nest);
+		addNestReference(enclClass, nest);
+
+		return true;
+	}
+
+	private void addNestReference(ClassNode clazz, ClassNest nest) {
+		nests.computeIfAbsent(clazz, key -> new LinkedHashMap<>()).put(nest.clazz, nest);
+	}
+
+	private void applyNests() {
 		try {
 			Path tmp1 = Files.createTempFile("tmp1", ".jar");
 			Path tmp2 = Files.createTempFile("tmp2", ".jar");
 
-			// tiny remapper does not like it when the file already exists...
+			// TinyRemapper does not like it when the file already exists
 			Files.delete(tmp2);
 
-			addAttributes(src, tmp1);
-			remapNestedClasses(tmp1, tmp2);
-			writeFixedJar(src, tmp2, dst);
+			applyNests(src, tmp1);
+			remapJar(tmp1, tmp2);
+			// TinyRemapper shuffles the classes
+			sortJar(src, tmp2, dst);
 
 			Files.delete(tmp1);
 			Files.delete(tmp2);
 
-			System.out.println("Done!");
+			if (!options.silent) {
+				System.out.println("Done!");
+			}
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
 	}
 
-	private void addAttributes(Path src, Path dst) {
+	private void applyNests(Path src, Path dst) {
 		try (JarOutputStream jos = new JarOutputStream(new FileOutputStream(dst.toFile()))) {
 			for (ClassNode newClass : jar.getNewClasses()) {
-				ProtoClassNode protoClass = newClass.proto();
-				JarEntry entry = new JarEntry(protoClass.getName() + ".class");
+				JarEntry entry = new JarEntry(newClass.name + ".class");
 				ClassWriter writer = new ClassWriter(0);
 				ClassVisitor visitor = new NestedClassAttributeClassVisitor(Opcodes.ASM9, writer);
 
 				visitor.visit(
-					protoClass.getVersion(),
-					protoClass.getAccess(),
-					protoClass.getName(),
-					protoClass.getSignature(),
-					protoClass.getSuperName(),
-					protoClass.getInterfaces()
+					newClass.version,
+					newClass.access,
+					newClass.name,
+					null,
+					newClass.superName,
+					null
 				);
 				visitor.visitEnd();
 
@@ -200,7 +250,9 @@ public class Nester {
 				}
 			}
 
-			System.out.println("Fixed inner class attributes...");
+			if (!options.silent) {
+				System.out.println("Applied nests...");
+			}
 
 			jos.finish();
 		} catch (IOException e) {
@@ -208,13 +260,13 @@ public class Nester {
 		}
 	}
 
-	private void remapNestedClasses(Path src, Path dst) {
-		TinyRemapper remapper = TinyRemapper.newRemapper().keepInputData(true).withMappings(ma -> {
-			for (ClassNode clazz : jar.getClasses()) {
-				ProtoClassNode protoClass = clazz.proto();
+	private void remapJar(Path src, Path dst) {
+		mappings.clear();
 
-				String oldName = protoClass.getName();
-				String newName = clazz.getName();
+		TinyRemapper remapper = TinyRemapper.newRemapper().withMappings(ma -> {
+			for (ClassNode clazz : nests.keySet()) {
+				String oldName = clazz.name;
+				String newName = remap(clazz.name);
 
 				if (!newName.equals(oldName)) {
 					ma.acceptClass(oldName, newName);
@@ -231,10 +283,45 @@ public class Nester {
 			remapper.finish();
 		}
 
-		System.out.println("Remapped nested class names...");
+		if (!options.silent) {
+			System.out.println("Remapped nested classes...");
+		}
 	}
 
-	private void writeFixedJar(Path src, Path fixedSrc, Path dst) {
+	private String remap(String className) {
+		String mapping = mappings.get(className);
+
+		if (mapping == null) {
+			mapping = map(className);
+			mappings.put(className, mapping);
+		}
+
+		return mapping;
+	}
+
+	private String map(String className) {
+		ClassNode clazz = jar.getClass(className);
+
+		if (clazz == null) {
+			return className;
+		}
+
+		Map<ClassNode, ClassNest> referencedNests = nests.get(clazz);
+
+		if (referencedNests == null) {
+			return className;
+		}
+
+		ClassNest nest = referencedNests.get(clazz);
+
+		if (nest == null) {
+			return className;
+		}
+
+		return remap(nest.enclClass.name) + "$" + nest.innerName;
+	}
+
+	private void sortJar(Path src, Path nestedSrc, Path dst) {
 		try (JarOutputStream jos = new JarOutputStream(new FileOutputStream(dst.toFile()))) {
 			byte[] buffer = new byte[4096];
 			int read = 0;
@@ -254,17 +341,17 @@ public class Nester {
 				}
 			}
 
-			System.out.println("Moved over non-class files...");
+			if (!options.silent) {
+				System.out.println("Moved over non-class files...");
+			}
 
-			JarFile fixedSrcJar = new JarFile(fixedSrc.toFile());
+			JarFile nestedSrcJar = new JarFile(nestedSrc.toFile());
 
 			for (ClassNode c : jar.getClasses()) {
-				String className = c.getName();
-				String entryName = className + ".class";
+				String entryName = remap(c.name) + ".class";
+				JarEntry entry = nestedSrcJar.getJarEntry(entryName);
 
-				JarEntry entry = fixedSrcJar.getJarEntry(entryName);
-
-				try (InputStream jis = fixedSrcJar.getInputStream(entry)) {
+				try (InputStream jis = nestedSrcJar.getInputStream(entry)) {
 					jos.putNextEntry(new JarEntry(entryName));
 
 					while ((read = jis.read(buffer)) > 0) {
@@ -276,9 +363,11 @@ public class Nester {
 				}
 			}
 
-			fixedSrcJar.close();
+			nestedSrcJar.close();
 
-			System.out.println("Moved over class files...");
+			if (!options.silent) {
+				System.out.println("Sorted class files...");
+			}
 
 			jos.finish();
 		} catch (IOException e) {
@@ -288,8 +377,8 @@ public class Nester {
 
 	private class NestedClassAttributeClassVisitor extends ClassVisitor {
 
-		private String name;
-		private Collection<Nest> nests;
+		private ClassNode clazz;
+		private Collection<ClassNest> nests;
 
 		private NestedClassAttributeClassVisitor(int api) {
 			super(api);
@@ -301,25 +390,17 @@ public class Nester {
 
 		@Override
 		public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
-			this.name = name;
-			this.nests = new LinkedHashSet<>();
+			this.clazz = Nester.this.jar.getClass(name);
 
-			ClassNode c = jar.getClass(this.name);
+			if (this.clazz != null) {
+				Map<ClassNode, ClassNest> referencedNests = Nester.this.nests.get(this.clazz);
 
-			if (c != null) {
-				prepareAttribute(c);
-
-				for (ClassNode cc : c.getInnerClasses()) {
-					prepareAttribute(cc);
+				if (referencedNests != null) {
+					this.nests = referencedNests.values();
 				}
-				for (ClassNode cc : c.getAnonymousClasses()) {
-					prepareAttribute(cc);
-				}
-				for (Node n : jar.getReferencesBy(c)) {
-					if (n.isClass()) {
-						prepareAttribute(n.asClass());
-					}
-				}
+			}
+			if (this.nests == null) {
+				this.nests = Collections.emptySet();
 			}
 
 			super.visit(version, access, name, signature, superName, interfaces);
@@ -327,52 +408,53 @@ public class Nester {
 
 		@Override
 		public void visitEnd() {
-			for (Nest nest : nests) {
-				addAttribute(nest);
+			for (ClassNest nest : nests) {
+				visitNest(nest);
 			}
 
 			super.visitEnd();
 		}
 
-		private void prepareAttribute(ClassNode c) {
-			Nest nest = Nester.this.nests.get(c.proto().getName());
-
-			if (nest != null) {
-				nests.add(nest);
-			}
-		}
-
-		private void addAttribute(Nest nest) {
-			if (nest.className.equals(name)) {
+		private void visitNest(ClassNest nest) {
+			if (nest.clazz.equals(clazz)) {
 				visitOuterClass(nest);
 			}
 
 			visitInnerClass(nest);
 		}
 
-		private void visitOuterClass(Nest nest) {
-			if (nest.isAnonymous()) {
-				visitOuterClass(nest.enclClassName, nest.enclMethodName, nest.enclMethodDesc);
+		private void visitOuterClass(ClassNest nest) {
+			if (nest.isAnonymous() || nest.isLocal()) {
+				visitOuterClass(
+					nest.enclClass.name,
+					nest.enclMethod == null ? null : nest.enclMethod.name,
+					nest.enclMethod == null ? null : nest.enclMethod.desc
+				);
 			}
 		}
 
-		private void visitInnerClass(Nest nest) {
-			visitInnerClass(nest.className, nest.isAnonymous() ? null : nest.enclClassName, nest.isAnonymous() ? null : stripLocalClassPrefix(nest.innerName), nest.access);
+		private void visitInnerClass(ClassNest nest) {
+			visitInnerClass(
+				nest.clazz.name,
+				nest.isInner() ? nest.enclClass.name : null,
+				nest.isInner() || nest.isLocal() ? stripLocalClassPrefix(nest.innerName) : null,
+				nest.innerAccess
+			);
 		}
 
 		private String stripLocalClassPrefix(String innerName) {
-			int nameStart = 0;
+			int idx = 0;
 
 			// local class names start with a number prefix
-			while (nameStart < innerName.length() && Character.isDigit(innerName.charAt(nameStart))) {
-				nameStart++;
+			while (idx < innerName.length() && Character.isDigit(innerName.charAt(idx))) {
+				idx++;
 			}
 			// if entire inner name is a number, this class is anonymous, not local
-			if (nameStart == innerName.length()) {
-				nameStart = 0;
+			if (idx == innerName.length()) {
+				idx = 0;
 			}
 
-			return innerName.substring(nameStart);
+			return innerName.substring(idx);
 		}
 	}
 }

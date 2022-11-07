@@ -5,253 +5,63 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
 
 import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassVisitor;
-import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.Type;
-
-import net.ornithemc.nester.jar.node.ClassNode;
-import net.ornithemc.nester.jar.node.FieldNode;
-import net.ornithemc.nester.jar.node.MethodNode;
-import net.ornithemc.nester.jar.node.Node;
-import net.ornithemc.nester.jar.node.proto.ProtoClassNode;
-import net.ornithemc.nester.jar.node.proto.ProtoFieldNode;
-import net.ornithemc.nester.jar.node.proto.ProtoMethodNode;
-import net.ornithemc.nester.jar.node.proto.ProtoNode;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.MethodNode;
 
 public class SourceJar {
 
+	private static final Comparator<String> CLASS_NAME_COMPARATOR = (c1, c2) -> {
+		int l1 = c1.length();
+		int l2 = c2.length();
+
+		return l1 == l2 ? c1.compareTo(c2) : l1 - l2;
+	};
+
 	private final Path src;
-	private final Map<String, ProtoClassNode> protoClasses;
+
 	private final Map<String, ClassNode> classes;
 	private final Map<String, ClassNode> newClasses;
-	private final Map<Node, Collection<Node>> referencesTo;
-	private final Map<Node, Collection<Node>> referencesBy;
 
 	private int classVersion = -1;
 
 	public SourceJar(Path src) {
 		this.src = src;
-		this.protoClasses = new TreeMap<>(ClassNode::compareByName);
-		this.classes = new TreeMap<>(ClassNode::compareByName);
-		this.newClasses = new TreeMap<>(ClassNode::compareByName);
-		this.referencesTo = new LinkedHashMap<>();
-		this.referencesBy = new LinkedHashMap<>();
+
+		this.classes = new TreeMap<>(CLASS_NAME_COMPARATOR);
+		this.newClasses = new TreeMap<>(CLASS_NAME_COMPARATOR);
 
 		this.read();
-		this.findReferences();
 	}
 
 	private void read() {
-		Set<ProtoNode> protoNodes = new LinkedHashSet<>();
-
 		try (JarInputStream js = new JarInputStream(new FileInputStream(src.toFile()))) {
-			for (JarEntry entry; (entry = js.getNextJarEntry()) != null;) {
-				if (entry.getName().endsWith(".class")) {
+			for (JarEntry entry; (entry = js.getNextJarEntry()) != null; ) {
+				if (entry.getName().endsWith("class")) {
 					ClassReader reader = new ClassReader(js);
-					ClassVisitor visitor = new ClassVisitor(Opcodes.ASM9) {
+					ClassNode visitor = new ClassNodeWrapper(Opcodes.ASM9);
 
-						private String className;
-						private ProtoClassNode clazz;
+					reader.accept(visitor, ClassReader.SKIP_FRAMES | ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG);
 
-						@Override
-						public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
-							if (clazz == null) {
-								if (classVersion < 0 || version < classVersion) {
-									classVersion = version;
-								}
+					if (classVersion < 0 || visitor.version < classVersion) {
+						classVersion = visitor.version;
+					}
 
-								className = name;
-								clazz = new ProtoClassNode(SourceJar.this, version, access, name, signature, superName, interfaces);
-
-								protoNodes.add(clazz);
-								protoClasses.put(name, clazz);
-							}
-
-							super.visit(version, access, name, signature, superName, interfaces);
-						}
-
-						@Override
-						public FieldVisitor visitField(int access, String name, String desc, String signature, Object value) {
-							if (clazz != null) {
-								ProtoFieldNode field = new ProtoFieldNode(SourceJar.this, access, name, desc, signature, value);
-
-								field.setEnclosingClass(className);
-								protoNodes.add(field);
-							}
-
-							return super.visitField(access, name, desc, signature, value);
-						}
-
-						@Override
-						public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
-							if (clazz != null) {
-								ProtoMethodNode method = new ProtoMethodNode(SourceJar.this, access, name, desc, signature, exceptions);
-
-								method.setEnclosingClass(className);
-								protoNodes.add(method);
-							}
-
-							return super.visitMethod(access, name, desc, signature, exceptions);
-						}
-
-						@Override
-						public void visitInnerClass(String name, String outerName, String innerName, int access) {
-							if (clazz != null && clazz.getName().equals(name)) {
-								if (outerName == null) {
-									int i = name.lastIndexOf('$');
-									outerName = name.substring(0, i);
-								}
-
-								clazz.setEnclosingClass(outerName, access);
-							}
-
-							super.visitInnerClass(name, outerName, innerName, access);
-						}
-					};
-
-					reader.accept(visitor, ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG | ClassReader.SKIP_CODE);
+					classes.put(visitor.name, visitor);
 				}
 			}
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-
-		for (ProtoNode protoNode : protoNodes) {
-			Node node = protoNode.node();
-
-			if (node.isClass()) {
-				ClassNode clazz = node.asClass();
-				classes.put(clazz.getName(), clazz);
-			}
-		}
-	}
-
-	private void findReferences() {
-		try (JarInputStream js = new JarInputStream(new FileInputStream(src.toFile()))) {
-			for (JarEntry entry; (entry = js.getNextJarEntry()) != null;) {
-				if (entry.getName().endsWith(".class")) {
-					ClassReader reader = new ClassReader(js);
-					ClassVisitor visitor = new ClassVisitor(Opcodes.ASM9) {
-
-						private ClassNode clazz;
-
-						@Override
-						public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
-							if (clazz == null) {
-								clazz = SourceJar.this.getClass(name);
-							}
-
-							super.visit(version, access, name, signature, superName, interfaces);
-						}
-
-						@Override
-						public FieldVisitor visitField(int access, String name, String desc, String signature, Object value) {
-							FieldVisitor visitor = super.visitField(access, name, desc, signature, value);
-
-							if (clazz == null) {
-								return visitor;
-							}
-
-							FieldNode field = clazz.getField(name);
-
-							if (field == null || field.isSynthetic()) {
-								return visitor;
-							}
-
-							Type type = Type.getType(desc);
-							int sort = type.getSort();
-
-							if (sort == Type.OBJECT || sort == Type.ARRAY) {
-								String className = type.getInternalName();
-								ClassNode clazz = SourceJar.this.getClass(className);
-
-								if (clazz != null) {
-									SourceJar.this.addReference(clazz, field);
-									clazz.markNotAnonymous();
-								}
-							}
-
-							return visitor;
-						}
-
-						@Override
-						public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
-							MethodVisitor visitor = super.visitMethod(access, name, desc, signature, exceptions);
-
-							if (clazz == null) {
-								return visitor;
-							}
-
-							MethodNode method = clazz.getMethod(name, desc);
-
-							if (method == null) {
-								return visitor;
-							}
-
-							return new MethodVisitor(Opcodes.ASM9, visitor) {
-
-								@Override
-								public void visitTypeInsn(int opcode, String type) {
-									ClassNode m_clazz = SourceJar.this.getClass(type);
-
-									if (m_clazz != null) {
-										SourceJar.this.addReference(m_clazz, method);
-
-										if (opcode != Opcodes.NEW) {
-											m_clazz.markNotAnonymous();
-										}
-									}
-
-									super.visitTypeInsn(opcode, type);
-								}
-
-								@Override
-								public void visitMethodInsn(int opcodeAndSource, String owner, String name, String descriptor, boolean isInterface) {
-									ClassNode m_clazz = SourceJar.this.getClass(owner);
-
-									if (m_clazz != null) {
-										SourceJar.this.addReference(m_clazz, method);
-										MethodNode m_method = m_clazz.getMethod(name, descriptor);
-
-										if (m_method != null) {
-											SourceJar.this.addReference(m_method, method);
-										}
-									}
-
-									super.visitMethodInsn(opcodeAndSource, owner, name, descriptor, isInterface);
-								}
-							};
-						}
-					};
-
-					reader.accept(visitor, ClassReader.SKIP_FRAMES | ClassReader.SKIP_DEBUG);
-				}
-			}
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
-
-	public Collection<ProtoClassNode> getProtoClasses() {
-		return Collections.unmodifiableCollection(protoClasses.values());
-	}
-
-	/**
-	 * Returns a proto class from its given name.
-	 */
-	public ProtoClassNode getProtoClass(String name) {
-		return protoClasses.get(name);
 	}
 
 	public Collection<ClassNode> getClasses() {
@@ -259,7 +69,7 @@ public class SourceJar {
 	}
 
 	/**
-	 * Returns a class from its given proto name.
+	 * Returns a class given its name.
 	 */
 	public ClassNode getClass(String name) {
 		return classes.get(name);
@@ -278,7 +88,17 @@ public class SourceJar {
 	 * merely a reference to a class in a library or the JRE.
 	 */
 	public boolean hasClass(ClassNode clazz) {
-		return hasClass(clazz.getName());
+		return hasClass(clazz.name);
+	}
+
+	public MethodNode getMethod(String className, String methodName, String methodDesc) {
+		ClassNode clazz = getClass(className);
+
+		if (clazz == null) {
+			return null;
+		}
+
+		return ((ClassNodeWrapper)clazz).methods.get(methodName + methodDesc);
 	}
 
 	public Collection<ClassNode> getNewClasses() {
@@ -289,68 +109,57 @@ public class SourceJar {
 		if (classes.containsKey(name)) {
 			throw new IllegalStateException("cannot generate class " + name + " as it already exists!");
 		}
-		if (newClasses.containsKey(name)) {
-			return newClasses.get(name);
-		}
 
-		ProtoClassNode protoClass = new ProtoClassNode(
-			this,
-			classVersion,
-			Opcodes.ACC_PUBLIC,
-			name,
-			null,
-			"java/lang/Object",
-			null
-		);
-		ClassNode clazz = protoClass.node();
+		ClassNode clazz = newClasses.computeIfAbsent(name, key -> {
+			ClassNode c = new ClassNodeWrapper(Opcodes.ASM9);
+			c.visit(
+				classVersion,
+				Opcodes.ACC_PUBLIC,
+				name,
+				null,
+				"java/lang/Object",
+				null
+			);
 
-		protoClasses.put(name, clazz.proto());
+			return c;
+		});
 		classes.put(name, clazz);
-		newClasses.put(name, clazz);
 
 		return clazz;
 	}
 
-	/**
-	 * Returns a set of all nodes that reference the given node.
-	 */
-	public Collection<Node> getReferencesTo(Node node) {
-		return referencesTo.getOrDefault(node, Collections.emptySet());
-	}
+	private static class ClassNodeWrapper extends ClassNode {
 
-	/**
-	 * Returns a set of all nodes that are referenced by the given node.
-	 */
-	public Collection<Node> getReferencesBy(Node node) {
-		return referencesBy.getOrDefault(node, Collections.emptySet());
-	}
+		private final Map<String, MethodNode> methods;
 
-	private void addReference(Node node, Node byNode) {
-		if (node.isClass()) {
-			// ignore references to classes by nodes inside those classes
-			ClassNode clazz = node.asClass();
-			ClassNode ancestor = byNode.getClosestCommonParentClass(clazz);
+		public ClassNodeWrapper(int api) {
+			super(api);
 
-			if (clazz == ancestor) {
-				return;
-			}
+			this.methods = new HashMap<>();
 		}
 
-		addNodeReference(node, byNode);
-
-		if (!byNode.isClass()) {
-			while (byNode != null && !byNode.isClass()) {
-				byNode = byNode.getParent();
+		@Override
+		public boolean equals(Object obj) {
+			if (this == obj) {
+				return true;
+			}
+			if (!(obj instanceof ClassNode)) {
+				return false;
 			}
 
-			if (byNode != null) {
-				addNodeReference(node, byNode);
-			}
+			return name.equals(((ClassNode)obj).name);
 		}
-	}
 
-	private void addNodeReference(Node node, Node byNode) {
-		referencesTo.computeIfAbsent(node, key -> new LinkedHashSet<>()).add(byNode);
-		referencesBy.computeIfAbsent(byNode, key -> new LinkedHashSet<>()).add(node);
+		@Override
+		public int hashCode() {
+			return name.hashCode();
+		}
+
+		@Override
+		public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+			MethodNode method = new MethodNode(access, name, descriptor, signature, exceptions);
+			methods.put(method.name + method.desc, method);
+			return method;
+		}
 	}
 }
