@@ -37,9 +37,22 @@ public class Nester {
 	public static class Options {
 
 		private boolean silent = false;
+		private boolean remap = true;
 
+		/**
+		 * Set whether the log progress through System.out.
+		 */
 		public Options silent(boolean silent) {
 			this.silent = silent;
+			return this;
+		}
+
+		/**
+		 * Set whether to remap nested classes in addition
+		 * to fixing their inner class attributes.
+		 */
+		public Options remap(boolean remap) {
+			this.remap = remap;
 			return this;
 		}
 	}
@@ -188,19 +201,26 @@ public class Nester {
 
 	private void applyNests() {
 		try {
-			Path tmp1 = Files.createTempFile("tmp1", ".jar");
-			Path tmp2 = Files.createTempFile("tmp2", ".jar");
+			if (options.remap) {
+				Path tmp1 = Files.createTempFile("tmp1", ".jar");
+				Path tmp2 = Files.createTempFile("tmp2", ".jar");
 
-			// TinyRemapper does not like it when the file already exists
-			Files.delete(tmp2);
+				// TinyRemapper does not like it when the file already exists
+				Files.delete(tmp2);
 
-			applyNests(src, tmp1);
-			remapJar(tmp1, tmp2);
-			// TinyRemapper shuffles the classes
-			sortJar(src, tmp2, dst);
+				applyNests(src, tmp1);
+				remapJar(tmp1, tmp2);
+				// TinyRemapper shuffles the classes
+				sortJar(src, tmp2, dst); // also copies over non-class files
 
-			Files.delete(tmp1);
-			Files.delete(tmp2);
+				Files.delete(tmp1);
+				Files.delete(tmp2);
+			} else {
+				Path tmp = Files.createTempFile("tmp", ".jar");
+
+				applyNests(src, tmp);
+				sortJar(src, tmp, dst); // copy over non-class files
+			}
 
 			if (!options.silent) {
 				System.out.println("Done!");
