@@ -11,7 +11,7 @@ public class Nest {
 	public final String innerName;
 	public final int access;
 
-	Nest(NestType type, String className, String enclClassName, String enclMethodName, String enclMethodDesc, String innerName, int access) {
+	public Nest(NestType type, String className, String enclClassName, String enclMethodName, String enclMethodDesc, String innerName, int access) {
 		this.type = type;
 
 		this.className = className;
