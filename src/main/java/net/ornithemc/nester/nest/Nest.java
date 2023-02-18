@@ -34,6 +34,11 @@ public class Nest {
 		return className.equals(((Nest)obj).className);
 	}
 
+	@Override
+	public int hashCode() {
+		return className.hashCode();
+	}
+
 	public boolean isAnonymous() {
 		return type == NestType.ANONYMOUS;
 	}

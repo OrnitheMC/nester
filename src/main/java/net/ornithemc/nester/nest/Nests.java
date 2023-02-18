@@ -39,6 +39,23 @@ public class Nests implements Iterable<Nest> {
 	}
 
 	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		}
+		if (!(obj instanceof Nests)) {
+			return false;
+		}
+
+		return all.equals(((Nests)obj).all);
+	}
+
+	@Override
+	public int hashCode() {
+		return all.hashCode();
+	}
+
+	@Override
 	public Iterator<Nest> iterator() {
 		return all.values().iterator();
 	}
