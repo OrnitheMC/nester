@@ -46,6 +46,23 @@ jar {
     }
 }
 
+task fatJar(type: Jar) {
+	from sourceSets.main.output
+	from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+
+	duplicatesStrategy = DuplicatesStrategy.INCLUDE
+
+	manifest {
+        attributes(
+            'Main-Class': 'net.ornithemc.nester.Main'
+        )
+    }
+
+	archiveClassifier = 'fat'
+}
+
+build.dependsOn(fatJar)
+
 test {
     useJUnitPlatform()
 }
@@ -61,7 +78,8 @@ publishing {
             artifactId = project.archivesBaseName
             version = project.version
 
-            from components.java
+            artifact jar
+            artifact fatJar
         }
     }
     repositories {
