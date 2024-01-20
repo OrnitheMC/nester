@@ -67,14 +67,19 @@ public class NesterIo {
 			int access = -1;
 
 			try {
-				access = Integer.parseInt(accessString);
-
-				if (access < 0) {
-					System.out.println("Invalid mapping \'" + line + "\': invalid access flags!");
-					continue;
+				if (accessString.startsWith("0x")) {
+					access = Integer.parseInt(accessString.substring(2), 0x10);
+				} else if (accessString.startsWith("0b")) {
+					access = Integer.parseInt(accessString.substring(2), 0b10);
+				} else {
+					access = Integer.parseInt(accessString);
 				}
 			} catch (NumberFormatException e) {
+			}
 
+			if (access < 0) {
+				System.out.println("Invalid mapping \'" + line + "\': invalid access flags!");
+				continue;
 			}
 
 			NestType type = (idx == innerName.length()) ? NestType.ANONYMOUS : ((idx == 0) ? NestType.INNER : NestType.LOCAL);
