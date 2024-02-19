@@ -11,4 +11,8 @@ public class NesterException extends RuntimeException {
 	public NesterException(String message) {
 		super(message);
 	}
+
+	public NesterException(String message, Throwable cause) {
+		super(message, cause);
+	}
 }

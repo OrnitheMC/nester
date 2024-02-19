@@ -5,17 +5,16 @@ import java.io.BufferedWriter;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 public class NesterIo {
 
 	private static final String TAB = "\t";
 
-	public static void read(Nests nests, Path mappings) {
+	public static void read(Nests nests, Path mappings) throws IOException {
 		try (BufferedReader br = new BufferedReader(new FileReader(mappings.toFile()))) {
 			read(nests, br);
-		} catch (IOException e) {
-
 		}
 	}
 
@@ -89,11 +88,11 @@ public class NesterIo {
 		}
 	}
 
-	public static void write(Nests nests, Path mappings) {
+	public static void write(Nests nests, Path mappings) throws IOException {
+		Files.createDirectories(mappings.getParent());
+
 		try (BufferedWriter bw = new BufferedWriter(new FileWriter(mappings.toFile()))) {
 			write(nests, bw);
-		} catch (IOException e) {
-
 		}
 	}
 

@@ -201,6 +201,9 @@ public class Nester {
 
 	private void applyNests() {
 		try {
+			// parent dirs might not yet exist
+			Files.createDirectories(dst.getParent());
+
 			if (options.remap) {
 				Path tmp1 = Files.createTempFile("tmp1", ".jar");
 				Path tmp2 = Files.createTempFile("tmp2", ".jar");
@@ -226,7 +229,7 @@ public class Nester {
 				System.out.println("Done!");
 			}
 		} catch (IOException e) {
-			e.printStackTrace();
+			throw new NesterException("could not nest jar", e);
 		}
 	}
 
@@ -276,7 +279,7 @@ public class Nester {
 
 			jos.finish();
 		} catch (IOException e) {
-			e.printStackTrace();
+			throw new NesterException("could not apply nests to jar", e);
 		}
 	}
 
@@ -298,7 +301,7 @@ public class Nester {
 			remapper.readInputs(src);
 			remapper.apply(oc);
 		} catch (IOException e) {
-			e.printStackTrace();
+			throw new NesterException("could not remap jar", e);
 		} finally {
 			remapper.finish();
 		}
@@ -391,7 +394,7 @@ public class Nester {
 
 			jos.finish();
 		} catch (IOException e) {
-			e.printStackTrace();
+			throw new NesterException("could not sort jar");
 		}
 	}
 

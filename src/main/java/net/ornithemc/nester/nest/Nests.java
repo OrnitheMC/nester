@@ -8,6 +8,8 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import net.ornithemc.nester.NesterException;
+
 public class Nests implements Iterable<Nest> {
 
 	public static Nests of(Path mappings) {
@@ -16,7 +18,7 @@ public class Nests implements Iterable<Nest> {
 		try (BufferedReader br = new BufferedReader(new FileReader(mappings.toFile()))) {
 			nests = of(br);
 		} catch (IOException e) {
-			nests = empty();
+			throw new NesterException("unable to read nests", e);
 		}
 
 		return nests;
