@@ -371,7 +371,7 @@ public class Nester {
 			JarFile nestedSrcJar = new JarFile(nestedSrc.toFile());
 
 			for (ClassNode c : jar.getClasses()) {
-				String entryName = remap(c.name) + ".class";
+				String entryName = (options.remap ? remap(c.name) : c.name) + ".class";
 				JarEntry entry = nestedSrcJar.getJarEntry(entryName);
 
 				try (InputStream jis = nestedSrcJar.getInputStream(entry)) {
