@@ -36,7 +36,7 @@ public class Nester {
 
 	public static class Options {
 
-		private boolean silent = false;
+		private boolean silent = true;
 		private boolean remap = true;
 
 		/**
