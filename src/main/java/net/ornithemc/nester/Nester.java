@@ -62,7 +62,7 @@ public class Nester {
 	 * write it to the given destination path.
 	 */
 	public static void nestJar(Path src, Path dst, Path nests) {
-		nestJar(new Options(), src, dst, Nests.of(nests));
+		nestJar(src, dst, Nests.of(nests));
 	}
 
 	/**
@@ -75,6 +75,14 @@ public class Nester {
 		}
 
 		nestJar(options, src, dst, Nests.of(nests));
+	}
+
+	/**
+	 * Apply the given nests to the jar at the given source path and
+	 * write it to the given destination path.
+	 */
+	public static void nestJar(Path src, Path dst, Nests nests) {
+		nestJar(new Options(), src, dst, nests);
 	}
 
 	/**
