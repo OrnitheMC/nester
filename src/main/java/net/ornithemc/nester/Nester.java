@@ -19,7 +19,10 @@ import java.util.jar.JarOutputStream;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Label;
+import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.MethodNode;
 
@@ -411,12 +414,8 @@ public class Nester {
 		private ClassNode clazz;
 		private Collection<ClassNest> nests;
 
-		private NestedClassAttributeClassVisitor(int api) {
-			super(api);
-		}
-
-		private NestedClassAttributeClassVisitor(int api, ClassVisitor classVisitor) {
-			super(api, classVisitor);
+		private NestedClassAttributeClassVisitor(int api, ClassWriter writer) {
+			super(api, writer);
 		}
 
 		@Override
@@ -435,6 +434,67 @@ public class Nester {
 			}
 
 			super.visit(version, access, name, signature, superName, interfaces);
+		}
+
+		@Override
+		public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+			MethodVisitor writer = super.visitMethod(access, name, descriptor, signature, exceptions);
+
+			return new MethodVisitor(Opcodes.ASM9, writer) {
+
+				private int local = -1;
+
+				@Override
+				public void visitLocalVariable(String name, String desc, String signature, Label start, Label end, int index) {
+					local++;
+
+					if (!nests.isEmpty()) {
+						Type type = Type.getType(desc);
+						String typeName = type.getInternalName();
+						ClassNode cls = jar.getClass(typeName);
+
+						for (ClassNest nest : nests) {
+							if (nest.type == NestType.ANONYMOUS && nest.clazz.equals(cls)) {
+								String superType;
+
+								if (cls.interfaces != null && !cls.interfaces.isEmpty()) {
+									superType = cls.interfaces.get(0);
+								} else {
+									superType = cls.superName;
+								}
+
+								String simpleName = getSimpleName(superType);
+								// make name camelCase and add index as suffix to avoid name conflicts
+								name = Character.toLowerCase(simpleName.charAt(0)) + simpleName.substring(1) + local;
+								desc = "L" + superType + ";";
+							}
+						}
+					}
+
+					super.visitLocalVariable(name, desc, signature, start, end, index);
+				}
+
+				private String getSimpleName(String className) {
+					int i = className.lastIndexOf('$');
+
+					if (i < 0) {
+						// not inner class, find simple name based on package separator
+						return className.substring(className.lastIndexOf('/') + 1);
+					}
+
+					// skip to first char after inner name separator
+					int j = ++i;
+
+					// class could be local, skip number prefix
+					while (j < className.length() && Character.isDigit(className.charAt(j))) {
+						j++;
+					}
+
+					// if all chars after the last $ are digits, the class is anonymous
+					// then just use the anonymous class number as simple name
+					return className.substring(j == className.length() ? i : j);
+				}
+			};
 		}
 
 		@Override
