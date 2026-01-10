@@ -433,6 +433,14 @@ public class Nester {
 				this.nests = Collections.emptySet();
 			}
 
+			for (ClassNest nest : this.nests) {
+				if (nest.clazz == this.clazz) {
+					// adopt certain access flags from the inner access flags
+					// compilers expect certain classes to be marked synthetic, for instance
+					access |= nest.innerAccess & (Opcodes.ACC_PUBLIC | Opcodes.ACC_PRIVATE | Opcodes.ACC_PROTECTED | Opcodes.ACC_SYNTHETIC);
+				}
+			}
+
 			super.visit(version, access, name, signature, superName, interfaces);
 		}
 
